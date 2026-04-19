@@ -10,10 +10,6 @@ import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.List;
 
-/**
- * Periodically scans the ChunkTimestampStore for chunks where
- * lastBlockUpdateTick > lastVoxelizationTick and queues re-voxelization.
- */
 public class DirtyScanService {
 	private final ServerLodEngine engine;
 	private final ChunkVoxelizer voxelizer;
@@ -33,16 +29,14 @@ public class DirtyScanService {
 	}
 
 	public void tick(MinecraftServer server) {
-		if (++tickCounter < scanInterval) {
-			return;
-		}
+		if (++tickCounter < scanInterval) return;
 		tickCounter = 0;
 
 		ChunkTimestampStore store = engine.getChunkTimestampStore();
 		List<ChunkPos> dirtyChunks = store.findDirtyChunks(maxPerScan);
 
 		if (!dirtyChunks.isEmpty()) {
-			VoxyServerMod.LOGGER.debug("[DirtyScan] Found {} dirty chunks", dirtyChunks.size());
+			VoxyServerMod.debug("[DirtyScan] Found {} dirty chunks", dirtyChunks.size());
 		}
 
 		for (ChunkPos pos : dirtyChunks) {
@@ -50,7 +44,7 @@ public class DirtyScanService {
 			for (ServerLevel level : server.getAllLevels()) {
 				LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x(), pos.z());
 				if (chunk != null) {
-					VoxyServerMod.LOGGER.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {}",
+					VoxyServerMod.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {}",
 						pos.x(), pos.z(), level.dimension().identifier());
 					voxelizer.revoxelizeChunk(level, chunk);
 					found = true;
@@ -58,12 +52,10 @@ public class DirtyScanService {
 				}
 			}
 			if (!found) {
-				VoxyServerMod.LOGGER.debug("[DirtyScan] Dirty chunk ({},{}) not loaded, skipping", pos.x(), pos.z());
+				VoxyServerMod.debug("[DirtyScan] Dirty chunk ({},{}) not loaded, skipping", pos.x(), pos.z());
 			}
 		}
 	}
 
-	public void shutdown() {
-		// nothing to clean up
-	}
+	public void shutdown() {}
 }

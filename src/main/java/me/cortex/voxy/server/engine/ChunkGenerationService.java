@@ -21,20 +21,15 @@ import java.util.concurrent.TimeUnit;
  * Chunks are generated ASYNCHRONOUSLY on a dedicated thread to avoid blocking the server tick.
  */
 public class ChunkGenerationService {
-	private static final int QUEUE_BATCH_SIZE = 8; // chunks to schedule per tick
 	private static final int CHECK_INTERVAL = 5; // ticks between scheduling batches
 
 	private final ServerLodEngine engine;
 	private final ChunkVoxelizer voxelizer;
 	private final int lodRadiusChunks;
+	private final int batchSize;
 
 	private final ConcurrentHashMap<UUID, PlayerGenState> playerStates = new ConcurrentHashMap<>();
-	private final ExecutorService genExecutor = Executors.newSingleThreadExecutor(r -> {
-		Thread t = new Thread(r, "VoxyServer ChunkGen");
-		t.setDaemon(true);
-		t.setPriority(Thread.MIN_PRIORITY);
-		return t;
-	});
+	private final ExecutorService genExecutor;
 	private int tickCounter = 0;
 
 	private static class PlayerGenState {
@@ -56,7 +51,18 @@ public class ChunkGenerationService {
 		this.engine = engine;
 		this.voxelizer = voxelizer;
 		this.lodRadiusChunks = config.lodStreamRadius * 2;
-		VoxyServerMod.LOGGER.info("[ChunkGen] Initialized with LOD radius = {} chunks", lodRadiusChunks);
+		this.batchSize = config.chunkGenConcurrency;
+		this.genExecutor = Executors.newFixedThreadPool(
+			Math.max(1, config.chunkGenConcurrency),
+			r -> {
+				Thread t = new Thread(r, "VoxyServer ChunkGen");
+				t.setDaemon(true);
+				t.setPriority(Thread.MIN_PRIORITY);
+				return t;
+			}
+		);
+		VoxyServerMod.LOGGER.info("[ChunkGen] Initialized with LOD radius = {} chunks, concurrency = {}",
+			lodRadiusChunks, config.chunkGenConcurrency);
 	}
 
 	public void tick(MinecraftServer server) {
@@ -92,7 +98,7 @@ public class ChunkGenerationService {
 	private void scheduleGenBatch(PlayerGenState state, ServerLevel level, String playerName, MinecraftServer server) {
 		int scheduled = 0;
 
-		while (state.index < state.queue.size() && scheduled < QUEUE_BATCH_SIZE) {
+		while (state.index < state.queue.size() && scheduled < batchSize) {
 			ChunkPos pos = state.queue.get(state.index);
 			state.index++;
 

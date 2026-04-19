@@ -26,14 +26,27 @@ public class VoxyServerMod implements ModInitializer {
 	private DirtyScanService dirtyScanService;
 	private ChunkGenerationService chunkGenService;
 
+	private static volatile boolean debugEnabled = false;
+
 	public static VoxyServerConfig getConfig() {
 		return config;
+	}
+
+	public static boolean isDebug() {
+		return debugEnabled;
+	}
+
+	public static void debug(String msg, Object... args) {
+		if (debugEnabled) {
+			LOGGER.info(msg, args);
+		}
 	}
 
 	@Override
 	public void onInitialize() {
 		config = VoxyServerConfig.load();
-		LOGGER.info("Voxy Server initialized");
+		debugEnabled = config.debugLogging;
+		LOGGER.info("Voxy Server initialized (debug={})", debugEnabled);
 		VoxyServerNetworking.register();
 
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
@@ -49,7 +62,11 @@ public class VoxyServerMod implements ModInitializer {
 			syncService.register();
 			chunkVoxelizer = new ChunkVoxelizer(lodEngine, syncService, config);
 			chunkVoxelizer.register();
-			chunkGenService = new ChunkGenerationService(lodEngine, chunkVoxelizer, config);
+			if (config.passiveChunkGeneration) {
+				chunkGenService = new ChunkGenerationService(lodEngine, chunkVoxelizer, config);
+			} else {
+				LOGGER.info("Passive chunk generation disabled");
+			}
 			dirtyScanService = new DirtyScanService(lodEngine, chunkVoxelizer, syncService, config);
 
 			ServerTickEvents.END_SERVER_TICK.register(tick -> {

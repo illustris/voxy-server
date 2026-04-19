@@ -7,6 +7,7 @@ import me.cortex.voxy.common.world.WorldSection;
 import me.cortex.voxy.server.VoxyServerMod;
 import me.cortex.voxy.server.config.VoxyServerConfig;
 import me.cortex.voxy.server.engine.ServerLodEngine;
+import me.cortex.voxy.server.merkle.MerkleHashUtil;
 import me.cortex.voxy.server.merkle.PlayerMerkleTree;
 import me.cortex.voxy.server.merkle.SectionHashStore;
 import me.cortex.voxy.server.network.*;
@@ -26,12 +27,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Orchestrates per-player Merkle sync: builds trees, handles hash exchange, streams sections.
- */
 public class SyncService {
-	private static final int TREE_REBUILD_DISTANCE = 64; // sections (~2048 blocks)
-	private static final int POSITION_CHECK_INTERVAL = 100; // ticks
+	private static final int TREE_REBUILD_DISTANCE = 64;
+	private static final int POSITION_CHECK_INTERVAL = 100;
 
 	private final ServerLodEngine engine;
 	private final VoxyServerConfig config;
@@ -46,8 +44,6 @@ public class SyncService {
 	public SyncService(ServerLodEngine engine, VoxyServerConfig config) {
 		this.engine = engine;
 		this.config = config;
-
-		// Hook into the dirty callback to update player trees and push sections
 		engine.setDirtySectionListener(this::onSectionDirty);
 		VoxyServerMod.LOGGER.info("[Sync] SyncService created with lodStreamRadius={}", config.lodStreamRadius);
 	}
@@ -66,7 +62,6 @@ public class SyncService {
 			}
 		});
 
-		// Handle MerkleReadyPayload from client
 		ServerPlayNetworking.registerGlobalReceiver(MerkleReadyPayload.TYPE, (payload, context) -> {
 			ServerPlayer player = context.player();
 			MinecraftServer server = context.server();
@@ -74,10 +69,9 @@ public class SyncService {
 			server.execute(() -> onPlayerReady(player, server));
 		});
 
-		// Handle MerkleClientL1Payload from client
 		ServerPlayNetworking.registerGlobalReceiver(MerkleClientL1Payload.TYPE, (payload, context) -> {
 			ServerPlayer player = context.player();
-			VoxyServerMod.LOGGER.info("[Sync] Received MerkleClientL1Payload from {} with {} entries",
+			VoxyServerMod.debug("[Sync] Received MerkleClientL1Payload from {} with {} entries",
 				player.getName().getString(), payload.regionKeys().length);
 			streamWorker.execute(() -> onClientL1Hashes(player, payload, context.server()));
 		});
@@ -92,22 +86,17 @@ public class SyncService {
 		Identifier dimension = player.level().dimension().identifier();
 		session.setCurrentDimension(dimension);
 
-		VoxyServerMod.LOGGER.info("[Sync] onPlayerReady: {} in dimension {}", player.getName().getString(), dimension);
-
-		// Send settings
 		ServerPlayNetworking.send(player, new MerkleSettingsPayload(
-			config.lodStreamRadius,
-			config.maxSectionsPerTickPerPlayer
+			config.lodStreamRadius, config.maxSectionsPerTickPerPlayer
 		));
 
-		// Build tree on stream worker thread
 		streamWorker.execute(() -> {
 			try {
 				int sectionX = player.getBlockX() >> 5;
 				int sectionZ = player.getBlockZ() >> 5;
 				int radiusSections = config.lodStreamRadius;
 
-				VoxyServerMod.LOGGER.info("[Sync] Building Merkle tree for {} at section ({},{}) radius={}",
+				VoxyServerMod.debug("[Sync] Building Merkle tree for {} at section ({},{}) radius={}",
 					player.getName().getString(), sectionX, sectionZ, radiusSections);
 
 				session.buildTree(engine.getSectionHashStore(), sectionX, sectionZ, radiusSections);
@@ -131,9 +120,7 @@ public class SyncService {
 				server.execute(() -> {
 					if (player.isRemoved()) return;
 					VoxyServerMod.LOGGER.info("[Sync] Sending {} L2 hashes to {}", regionKeys.length, player.getName().getString());
-					ServerPlayNetworking.send(player, new MerkleL2HashesPayload(
-						dimension, regionKeys, regionHashValues
-					));
+					ServerPlayNetworking.send(player, new MerkleL2HashesPayload(dimension, regionKeys, regionHashValues));
 					session.setState(PlayerSyncSession.State.L2_SENT);
 				});
 			} catch (Exception e) {
@@ -150,7 +137,6 @@ public class SyncService {
 		}
 
 		try {
-			// Reorganize client L1 hashes by region
 			Long2ObjectOpenHashMap<Long2LongOpenHashMap> clientL1ByRegion = new Long2ObjectOpenHashMap<>();
 			for (int i = 0; i < payload.regionKeys().length; i++) {
 				long regionKey = payload.regionKeys()[i];
@@ -165,14 +151,31 @@ public class SyncService {
 				regionMap.put(columnKey, columnHash);
 			}
 
-			VoxyServerMod.LOGGER.info("[Sync] Client {} sent L1 hashes for {} regions",
-				player.getName().getString(), clientL1ByRegion.size());
-
-			// Find differing L0 sections
 			List<Long> differing = session.getTree().findDifferingL0Sections(clientL1ByRegion);
 
-			VoxyServerMod.LOGGER.info("[Sync] Found {} differing L0 sections for {}",
-				differing.size(), player.getName().getString());
+			VoxyServerMod.LOGGER.info("[Sync] Merkle diff for {}: {} differing L0 sections across {} regions",
+				player.getName().getString(), differing.size(), clientL1ByRegion.size());
+
+			if (VoxyServerMod.isDebug()) {
+				// Log each differing column with coordinates
+				for (var regionEntry : clientL1ByRegion.long2ObjectEntrySet()) {
+					long regionKey = regionEntry.getLongKey();
+					Long2LongOpenHashMap clientL1 = regionEntry.getValue();
+					Long2LongOpenHashMap serverL1 = session.getTree().getL1HashesForRegion(regionKey);
+
+					for (var colEntry : serverL1.long2LongEntrySet()) {
+						long colKey = colEntry.getLongKey();
+						long serverHash = colEntry.getLongValue();
+						long clientHash = clientL1.get(colKey);
+						if (serverHash != clientHash) {
+							int cx = MerkleHashUtil.columnKeyX(colKey);
+							int cz = MerkleHashUtil.columnKeyZ(colKey);
+							VoxyServerMod.debug("[Sync] Hash conflict for {}: column ({},{}) server={} client={}",
+								player.getName().getString(), cx * 32, cz * 32, Long.toHexString(serverHash), Long.toHexString(clientHash));
+						}
+					}
+				}
+			}
 
 			if (differing.isEmpty()) {
 				session.setState(PlayerSyncSession.State.IDLE);
@@ -180,7 +183,6 @@ public class SyncService {
 				return;
 			}
 
-			// Queue sections for sending
 			session.enqueueSections(differing);
 			session.setState(PlayerSyncSession.State.SYNCING);
 			VoxyServerMod.LOGGER.info("[Sync] Queued {} sections for sending to {}",
@@ -193,33 +195,36 @@ public class SyncService {
 	/**
 	 * Called from dirty callback when a section changes.
 	 * Computes and stores the L0 hash, then notifies players.
-	 *
-	 * Note: this is called from the Voxy worker thread (via WorldEngine.markDirty callback).
-	 * The WorldEngine that fired this callback is the one we need -- we use engine.getOrCreate
-	 * with the dimension Identifier directly (ServerLodEngine tracks the mapping).
 	 */
 	private void onSectionDirty(Identifier dimension, long sectionKey) {
-		VoxyServerMod.LOGGER.debug("[Sync] Section dirty: {} key={}", dimension, WorldEngine.pprintPos(sectionKey));
-
 		streamWorker.execute(() -> {
 			try {
-				// Get the WorldEngine via the dimension->WorldIdentifier mapping in ServerLodEngine
 				WorldEngine world = engine.getWorldEngineForDimension(dimension);
-
 				if (world == null) {
 					VoxyServerMod.LOGGER.warn("[Sync] onSectionDirty: no WorldEngine for dimension {}", dimension);
 					return;
 				}
 
-				// Compute and store the L0 hash
-				WorldSection section = world.acquireIfExists(sectionKey);
+				WorldSection section = world.acquire(sectionKey);
 				if (section != null) {
 					try {
-						long hash = SectionSerializer.computeSectionHash(section);
-						engine.getSectionHashStore().putHash(sectionKey, hash);
-						VoxyServerMod.LOGGER.debug("[Sync] Stored L0 hash for {} = {}", WorldEngine.pprintPos(sectionKey), Long.toHexString(hash));
+						long newHash = SectionSerializer.computeSectionHash(section);
+						long oldHash = engine.getSectionHashStore().getHash(sectionKey);
+						engine.getSectionHashStore().putHash(sectionKey, newHash);
 
-						// Update each online player's tree and push if in range
+						if (oldHash == 0) {
+							// Newly generated section, not a conflict
+							VoxyServerMod.debug("[Sync] New section hash: {} = {}",
+								WorldEngine.pprintPos(sectionKey), Long.toHexString(newHash));
+						} else if (oldHash != newHash) {
+							// Hash changed -- this is a real update (block change)
+							int sx = WorldEngine.getX(sectionKey);
+							int sz = WorldEngine.getZ(sectionKey);
+							VoxyServerMod.debug("[Sync] Hash conflict (block update): section ({},{}) old={} new={}",
+								sx * 32, sz * 32, Long.toHexString(oldHash), Long.toHexString(newHash));
+						}
+
+						// Push to players in range
 						for (PlayerSyncSession session : sessions.values()) {
 							if (session.getTree() == null) continue;
 							if (!dimension.equals(session.getCurrentDimension())) continue;
@@ -227,13 +232,22 @@ public class SyncService {
 							int sx = WorldEngine.getX(sectionKey);
 							int sz = WorldEngine.getZ(sectionKey);
 							if (session.isInRange(sx, sz)) {
-								session.getTree().onL0HashChanged(sectionKey, hash);
-								session.enqueueSection(sectionKey);
-								if (session.getState() == PlayerSyncSession.State.IDLE) {
-									session.setState(PlayerSyncSession.State.SYNCING);
+								long playerOldHash = session.getTree().getL0Hash(sectionKey);
+								session.getTree().onL0HashChanged(sectionKey, newHash);
+
+								// Only push if this is a real change from the player's perspective
+								if (playerOldHash != newHash) {
+									session.enqueueSection(sectionKey);
+									if (session.getState() == PlayerSyncSession.State.IDLE) {
+										session.setState(PlayerSyncSession.State.SYNCING);
+									}
+									if (playerOldHash != 0) {
+										VoxyServerMod.debug("[Sync] Pushing update to {}: section ({},{}) old={} new={}",
+											session.getPlayer().getName().getString(),
+											sx * 32, sz * 32,
+											Long.toHexString(playerOldHash), Long.toHexString(newHash));
+									}
 								}
-								VoxyServerMod.LOGGER.debug("[Sync] Pushed dirty section {} to player {}",
-									WorldEngine.pprintPos(sectionKey), session.getPlayerId());
 							}
 						}
 					} finally {
@@ -246,9 +260,6 @@ public class SyncService {
 		});
 	}
 
-	/**
-	 * Called every server tick to drain send queues, update positions, and rebuild trees.
-	 */
 	public void tick(MinecraftServer server) {
 		tickCounter++;
 
@@ -285,9 +296,7 @@ public class SyncService {
 
 							server.execute(() -> {
 								if (player.isRemoved()) return;
-								ServerPlayNetworking.send(player, new MerkleL2HashesPayload(
-									dimension, regionKeys, regionHashValues
-								));
+								ServerPlayNetworking.send(player, new MerkleL2HashesPayload(dimension, regionKeys, regionHashValues));
 								session.setState(PlayerSyncSession.State.L2_SENT);
 							});
 						} catch (Exception e) {
@@ -322,7 +331,6 @@ public class SyncService {
 					for (long sectionKey : batch) {
 						WorldSection section = world.acquireIfExists(sectionKey);
 						if (section == null) {
-							// Section not in memory cache -- use acquire() to load from disk
 							section = world.acquire(sectionKey);
 						}
 						if (section == null) {
@@ -340,11 +348,11 @@ public class SyncService {
 					}
 
 					if (sectionPayloads.isEmpty()) {
-						VoxyServerMod.LOGGER.info("[Sync] Batch had 0 loadable sections (skipped {}), batch size was {}", skipped, batch.length);
+						VoxyServerMod.debug("[Sync] Batch had 0 loadable sections (skipped {})", skipped);
 						return;
 					}
 
-					VoxyServerMod.LOGGER.info("[Sync] Sending {} sections to {} (skipped {})",
+					VoxyServerMod.debug("[Sync] Sending {} sections to {} (skipped {})",
 						sectionPayloads.size(), player.getName().getString(), skipped);
 
 					LODBulkPayload bulk = new LODBulkPayload(dimension, sectionPayloads);
@@ -372,7 +380,6 @@ public class SyncService {
 			player.getName().getString(), newLevel.dimension().identifier());
 
 		ServerPlayNetworking.send(player, LODClearPayload.clearAll());
-
 		session.reset();
 		session.setCurrentDimension(newLevel.dimension().identifier());
 		session.setState(PlayerSyncSession.State.AWAITING_READY);
