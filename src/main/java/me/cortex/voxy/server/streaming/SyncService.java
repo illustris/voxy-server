@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 public class SyncService {
 	private static final int TREE_REBUILD_DISTANCE = 64;
 	private static final int POSITION_CHECK_INTERVAL = 100;
+	private static final int DIRTY_DEBOUNCE_TICKS = 20; // wait 1 second after last dirty before processing
 
 	private final ServerLodEngine engine;
 	private final VoxyServerConfig config;
@@ -40,6 +41,11 @@ public class SyncService {
 		return t;
 	});
 	private int tickCounter = 0;
+
+	// Debounce: sectionKey -> (dimension, tick when last dirtied)
+	private record PendingDirty(Identifier dimension, long lastDirtyTick) {}
+	private final ConcurrentHashMap<Long, PendingDirty> pendingDirty = new ConcurrentHashMap<>();
+	private volatile long currentTick = 0;
 
 	public SyncService(ServerLodEngine engine, VoxyServerConfig config) {
 		this.engine = engine;
@@ -194,74 +200,108 @@ public class SyncService {
 
 	/**
 	 * Called from dirty callback when a section changes.
-	 * Computes and stores the L0 hash, then notifies players.
+	 * Debounces: records the dirty event and processes it after DIRTY_DEBOUNCE_TICKS
+	 * of no further changes to the same section. This prevents hashing and pushing
+	 * the same section dozens of times during initial chunk loading (each neighboring
+	 * chunk partially fills the same WorldSection).
 	 */
 	private void onSectionDirty(Identifier dimension, long sectionKey) {
+		pendingDirty.put(sectionKey, new PendingDirty(dimension, currentTick));
+	}
+
+	/**
+	 * Process debounced dirty sections that have stabilized.
+	 */
+	private void processPendingDirty() {
+		if (pendingDirty.isEmpty()) return;
+
+		List<Long> ready = new ArrayList<>();
+		for (var entry : pendingDirty.entrySet()) {
+			if (currentTick - entry.getValue().lastDirtyTick >= DIRTY_DEBOUNCE_TICKS) {
+				ready.add(entry.getKey());
+			}
+		}
+
+		if (ready.isEmpty()) return;
+
+		// Remove from pending and process on stream worker
+		List<PendingDirty> toProcess = new ArrayList<>();
+		for (long key : ready) {
+			PendingDirty pd = pendingDirty.remove(key);
+			if (pd != null) toProcess.add(new PendingDirty(pd.dimension(), key)); // reuse record, stash sectionKey in lastDirtyTick field
+		}
+
+		// Batch process on stream worker
 		streamWorker.execute(() -> {
-			try {
-				WorldEngine world = engine.getWorldEngineForDimension(dimension);
-				if (world == null) {
-					VoxyServerMod.LOGGER.warn("[Sync] onSectionDirty: no WorldEngine for dimension {}", dimension);
-					return;
-				}
-
-				WorldSection section = world.acquire(sectionKey);
-				if (section != null) {
-					try {
-						long newHash = SectionSerializer.computeSectionHash(section);
-						long oldHash = engine.getSectionHashStore().getHash(sectionKey);
-						engine.getSectionHashStore().putHash(sectionKey, newHash);
-
-						if (oldHash == 0) {
-							// Newly generated section, not a conflict
-							VoxyServerMod.debug("[Sync] New section hash: {} = {}",
-								WorldEngine.pprintPos(sectionKey), Long.toHexString(newHash));
-						} else if (oldHash != newHash) {
-							// Hash changed -- this is a real update (block change)
-							int sx = WorldEngine.getX(sectionKey);
-							int sz = WorldEngine.getZ(sectionKey);
-							VoxyServerMod.debug("[Sync] Hash conflict (block update): section ({},{}) old={} new={}",
-								sx * 32, sz * 32, Long.toHexString(oldHash), Long.toHexString(newHash));
-						}
-
-						// Push to players in range
-						for (PlayerSyncSession session : sessions.values()) {
-							if (session.getTree() == null) continue;
-							if (!dimension.equals(session.getCurrentDimension())) continue;
-
-							int sx = WorldEngine.getX(sectionKey);
-							int sz = WorldEngine.getZ(sectionKey);
-							if (session.isInRange(sx, sz)) {
-								long playerOldHash = session.getTree().getL0Hash(sectionKey);
-								session.getTree().onL0HashChanged(sectionKey, newHash);
-
-								// Only push if this is a real change from the player's perspective
-								if (playerOldHash != newHash) {
-									session.enqueueSection(sectionKey);
-									if (session.getState() == PlayerSyncSession.State.IDLE) {
-										session.setState(PlayerSyncSession.State.SYNCING);
-									}
-									if (playerOldHash != 0) {
-										VoxyServerMod.debug("[Sync] Pushing update to {}: section ({},{}) old={} new={}",
-											session.getPlayer().getName().getString(),
-											sx * 32, sz * 32,
-											Long.toHexString(playerOldHash), Long.toHexString(newHash));
-									}
-								}
-							}
-						}
-					} finally {
-						section.release();
-					}
-				}
-			} catch (Exception e) {
-				VoxyServerMod.LOGGER.error("[Sync] Failed to handle dirty section {}", WorldEngine.pprintPos(sectionKey), e);
+			for (int idx = 0; idx < ready.size(); idx++) {
+				long sectionKey = ready.get(idx);
+				Identifier dimension = toProcess.get(idx).dimension();
+				processDirtySection(dimension, sectionKey);
 			}
 		});
 	}
 
+	private void processDirtySection(Identifier dimension, long sectionKey) {
+		try {
+			WorldEngine world = engine.getWorldEngineForDimension(dimension);
+			if (world == null) return;
+
+			WorldSection section = world.acquire(sectionKey);
+			if (section == null) return;
+
+			try {
+				long newHash = SectionSerializer.computeSectionHash(section);
+				long oldHash = engine.getSectionHashStore().getHash(sectionKey);
+				engine.getSectionHashStore().putHash(sectionKey, newHash);
+
+				// Skip if hash hasn't actually changed
+				if (oldHash == newHash) return;
+
+				int sx = WorldEngine.getX(sectionKey);
+				int sz = WorldEngine.getZ(sectionKey);
+
+				if (oldHash != 0) {
+					VoxyServerMod.debug("[Sync] Hash changed: section ({},{}) old={} new={}",
+						sx * 32, sz * 32, Long.toHexString(oldHash), Long.toHexString(newHash));
+				}
+
+				// Push to players in range
+				for (PlayerSyncSession session : sessions.values()) {
+					if (session.getTree() == null) continue;
+					if (!dimension.equals(session.getCurrentDimension())) continue;
+
+					if (session.isInRange(sx, sz)) {
+						long playerOldHash = session.getTree().getL0Hash(sectionKey);
+						session.getTree().onL0HashChanged(sectionKey, newHash);
+
+						if (playerOldHash != newHash) {
+							session.enqueueSection(sectionKey);
+							if (session.getState() == PlayerSyncSession.State.IDLE) {
+								session.setState(PlayerSyncSession.State.SYNCING);
+							}
+							if (playerOldHash != 0) {
+								VoxyServerMod.debug("[Sync] Pushing update to {}: section ({},{}) old={} new={}",
+									session.getPlayer().getName().getString(),
+									sx * 32, sz * 32,
+									Long.toHexString(playerOldHash), Long.toHexString(newHash));
+							}
+						}
+					}
+				}
+			} finally {
+				section.release();
+			}
+		} catch (Exception e) {
+			VoxyServerMod.LOGGER.error("[Sync] Failed to process dirty section {}", WorldEngine.pprintPos(sectionKey), e);
+		}
+	}
+
 	public void tick(MinecraftServer server) {
 		tickCounter++;
+		currentTick++;
+
+		// Process debounced dirty sections
+		processPendingDirty();
 
 		// Periodically check player positions and rebuild trees if moved
 		if (tickCounter % POSITION_CHECK_INTERVAL == 0) {
