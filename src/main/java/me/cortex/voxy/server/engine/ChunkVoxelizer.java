@@ -42,7 +42,7 @@ public class ChunkVoxelizer {
 	}
 
 	private void onChunkLoad(ServerLevel level, LevelChunk chunk) {
-		VoxyServerMod.LOGGER.debug("[Voxelizer] Chunk loaded: ({},{}) in {}",
+		VoxyServerMod.debug("[Voxelizer] Chunk loaded: ({},{}) in {}",
 			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 		if (ingestChunk(level, chunk)) {
 			pendingChunkRetries.remove(new PendingChunk(level.dimension().identifier(), chunk.getPos().x(), chunk.getPos().z()));
@@ -53,14 +53,10 @@ public class ChunkVoxelizer {
 
 	private boolean ingestChunk(ServerLevel level, LevelChunk chunk) {
 		WorldEngine world = engine.getOrCreate(level);
-		if (world == null) {
-			VoxyServerMod.LOGGER.warn("[Voxelizer] No WorldEngine for level {}", level.dimension().identifier());
-			return false;
-		}
+		if (world == null) return false;
 
 		engine.markChunkPossiblyPresent(level, chunk);
 
-		// Mark voxelization started at invocation time
 		long invocationTick = level.getServer().getTickCount();
 		engine.getChunkTimestampStore().markVoxelizationStarted(
 			chunk.getPos().x(), chunk.getPos().z(), invocationTick
@@ -76,11 +72,8 @@ public class ChunkVoxelizer {
 		return enqueued;
 	}
 
-	/**
-	 * Re-voxelize a chunk that has been marked dirty by the timestamp scanner.
-	 */
 	public boolean revoxelizeChunk(ServerLevel level, LevelChunk chunk) {
-		VoxyServerMod.LOGGER.debug("[Voxelizer] Re-voxelizing chunk ({},{}) in {}",
+		VoxyServerMod.debug("[Voxelizer] Re-voxelizing chunk ({},{}) in {}",
 			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 		return ingestChunk(level, chunk);
 	}
@@ -94,42 +87,29 @@ public class ChunkVoxelizer {
 
 	private void onServerTick(MinecraftServer server) {
 		currentTick++;
-		if (pendingChunkRetries.isEmpty()) {
-			return;
-		}
+		if (pendingChunkRetries.isEmpty()) return;
 
 		for (Map.Entry<PendingChunk, Long> entry : pendingChunkRetries.entrySet()) {
-			if (entry.getValue() > currentTick) {
-				continue;
-			}
+			if (entry.getValue() > currentTick) continue;
 
 			PendingChunk pendingChunk = entry.getKey();
 			ServerLevel level = findLevel(server, pendingChunk.dimension());
-			if (level == null) {
-				pendingChunkRetries.remove(pendingChunk, entry.getValue());
-				continue;
-			}
+			if (level == null) { pendingChunkRetries.remove(pendingChunk, entry.getValue()); continue; }
 
 			LevelChunk chunk = level.getChunkSource().getChunkNow(pendingChunk.chunkX(), pendingChunk.chunkZ());
-			if (chunk == null) {
-				pendingChunkRetries.remove(pendingChunk, entry.getValue());
-				continue;
-			}
+			if (chunk == null) { pendingChunkRetries.remove(pendingChunk, entry.getValue()); continue; }
 
 			if (ingestChunk(level, chunk)) {
 				pendingChunkRetries.remove(pendingChunk, entry.getValue());
-				continue;
+			} else {
+				pendingChunkRetries.replace(pendingChunk, entry.getValue(), currentTick + RETRY_INTERVAL_TICKS);
 			}
-
-			pendingChunkRetries.replace(pendingChunk, entry.getValue(), currentTick + RETRY_INTERVAL_TICKS);
 		}
 	}
 
 	private static ServerLevel findLevel(MinecraftServer server, Identifier dimension) {
 		for (ServerLevel level : server.getAllLevels()) {
-			if (level.dimension().identifier().equals(dimension)) {
-				return level;
-			}
+			if (level.dimension().identifier().equals(dimension)) return level;
 		}
 		return null;
 	}
