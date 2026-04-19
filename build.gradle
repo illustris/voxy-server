@@ -33,13 +33,9 @@ dependencies {
 
 	implementation files("libs/voxy.jar")
 
-	// LWJGL is bundled with the client but not the dedicated server
-	// Voxy's Mapper uses MemoryUtil for off-heap allocation
-	// Use the same version as the game (3.4.1) to avoid conflicts
-	include implementation("org.lwjgl:lwjgl:3.4.1")
-	include implementation("org.lwjgl:lwjgl:3.4.1:natives-windows")
-	include implementation("org.lwjgl:lwjgl:3.4.1:natives-linux")
-	include implementation("org.lwjgl:lwjgl:3.4.1:natives-linux-arm64")
+	// LWJGL: Voxy already bundles the correct version for dedicated servers.
+	// Do NOT include our own copy -- it causes version conflicts.
+	// On client, LWJGL comes from MC itself.
 
 	// xxHash for Merkle tree hashing
 	include implementation("net.openhft:zero-allocation-hashing:0.16")
