@@ -19,7 +19,7 @@ public class VoxyServerConfig {
 	public boolean generateOnChunkLoad = true;
 	public int tickInterval = 5;
 	public int workerThreads = 3;
-	public int dirtyScanInterval = 40;
+	public int dirtyScanInterval = 10;
 	public int maxDirtyChunksPerScan = 64;
 
 	public static VoxyServerConfig load() {
