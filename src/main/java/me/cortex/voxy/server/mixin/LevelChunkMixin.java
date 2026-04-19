@@ -22,8 +22,14 @@ public abstract class LevelChunkMixin {
 
 	@Inject(method = "setBlockState", at = @At("RETURN"))
 	private void onSetBlockState(BlockPos pos, BlockState state, int flags, CallbackInfoReturnable<BlockState> cir) {
-		if (cir.getReturnValue() != null && this.level instanceof ServerLevel) {
-			ChunkTimestampStore.onBlockChanged((ServerLevel) this.level, pos);
+		if (cir.getReturnValue() != null && this.level instanceof ServerLevel serverLevel) {
+			// Only track block changes in fully loaded chunks (not during worldgen).
+			// During chunk generation, setBlockState fires for every placed block
+			// (ores, trees, features etc.) which would flood the timestamp store.
+			LevelChunk self = (LevelChunk) (Object) this;
+			if (self.getFullStatus() != null && self.getFullStatus().isOrAfter(net.minecraft.server.level.FullChunkStatus.FULL)) {
+				ChunkTimestampStore.onBlockChanged(serverLevel, pos);
+			}
 		}
 	}
 }

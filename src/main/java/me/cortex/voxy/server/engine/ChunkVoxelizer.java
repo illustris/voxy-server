@@ -44,18 +44,33 @@ public class ChunkVoxelizer {
 	private void onChunkLoad(ServerLevel level, LevelChunk chunk) {
 		VoxyServerMod.debug("[Voxelizer] Chunk loaded: ({},{}) in {}",
 			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
-		if (ingestChunk(level, chunk)) {
+		if (ingestChunk(level, chunk, false)) {
 			pendingChunkRetries.remove(new PendingChunk(level.dimension().identifier(), chunk.getPos().x(), chunk.getPos().z()));
 			return;
 		}
 		scheduleRetry(level, chunk);
 	}
 
-	private boolean ingestChunk(ServerLevel level, LevelChunk chunk) {
+	private boolean ingestChunk(ServerLevel level, LevelChunk chunk, boolean force) {
 		WorldEngine world = engine.getOrCreate(level);
 		if (world == null) return false;
 
 		engine.markChunkPossiblyPresent(level, chunk);
+
+		// Skip if this chunk's sections already have hashes (already voxelized).
+		// Re-voxelizing produces non-deterministic results (depends on lighting
+		// and neighbor state), causing spurious hash conflicts.
+		// Only force=true (from DirtyScanService for actual block changes) bypasses this.
+		if (!force) {
+			int worldSecX = chunk.getPos().x() >> 1;
+			int worldSecZ = chunk.getPos().z() >> 1;
+			long sampleKey = me.cortex.voxy.common.world.WorldEngine.getWorldSectionId(0, worldSecX, 0, worldSecZ);
+			if (engine.getSectionHashStore().getHash(sampleKey) != 0) {
+				VoxyServerMod.debug("[Voxelizer] Skipping already-voxelized chunk ({},{}) in {}",
+					chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
+				return true; // pretend success so it's not retried
+			}
+		}
 
 		long invocationTick = level.getServer().getTickCount();
 		engine.getChunkTimestampStore().markVoxelizationStarted(
@@ -72,10 +87,21 @@ public class ChunkVoxelizer {
 		return enqueued;
 	}
 
+	/**
+	 * Re-voxelize a chunk due to a confirmed block change (from DirtyScanService).
+	 * Uses force=true to bypass the already-voxelized check.
+	 */
 	public boolean revoxelizeChunk(ServerLevel level, LevelChunk chunk) {
 		VoxyServerMod.debug("[Voxelizer] Re-voxelizing chunk ({},{}) in {}",
 			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
-		return ingestChunk(level, chunk);
+		return ingestChunk(level, chunk, true);
+	}
+
+	/**
+	 * Voxelize a newly generated chunk. Skips if already voxelized.
+	 */
+	public boolean voxelizeNewChunk(ServerLevel level, LevelChunk chunk) {
+		return ingestChunk(level, chunk, false);
 	}
 
 	private void scheduleRetry(ServerLevel level, LevelChunk chunk) {
@@ -99,7 +125,7 @@ public class ChunkVoxelizer {
 			LevelChunk chunk = level.getChunkSource().getChunkNow(pendingChunk.chunkX(), pendingChunk.chunkZ());
 			if (chunk == null) { pendingChunkRetries.remove(pendingChunk, entry.getValue()); continue; }
 
-			if (ingestChunk(level, chunk)) {
+			if (ingestChunk(level, chunk, false)) {
 				pendingChunkRetries.remove(pendingChunk, entry.getValue());
 			} else {
 				pendingChunkRetries.replace(pendingChunk, entry.getValue(), currentTick + RETRY_INTERVAL_TICKS);

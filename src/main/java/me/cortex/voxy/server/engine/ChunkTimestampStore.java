@@ -78,15 +78,19 @@ public class ChunkTimestampStore {
 
 	/**
 	 * Called at voxelization invocation time (BEFORE it runs, not on completion).
+	 * Only updates if there's an existing record (i.e., a block change was previously
+	 * recorded). This prevents creating records for chunks during initial generation,
+	 * where setBlockState fires from worldgen but isn't a player edit.
 	 */
 	public void markVoxelizationStarted(int chunkX, int chunkZ, long invocationTick) {
 		byte[] key = packKey(chunkX, chunkZ);
 		try {
 			byte[] existing = db.get(key);
-			long lastBlockTick = 0;
-			if (existing != null && existing.length >= 16) {
-				lastBlockTick = ByteBuffer.wrap(existing, 0, 8).getLong();
+			if (existing == null || existing.length < 16) {
+				// No prior block update recorded -- this is initial generation, skip
+				return;
 			}
+			long lastBlockTick = ByteBuffer.wrap(existing, 0, 8).getLong();
 			byte[] value = new byte[16];
 			ByteBuffer.wrap(value).putLong(lastBlockTick).putLong(invocationTick);
 			db.put(key, value);
