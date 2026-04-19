@@ -22,6 +22,7 @@ public class ChunkVoxelizer {
 	private final boolean generateOnChunkLoad;
 	private final ConcurrentHashMap<PendingChunk, Long> pendingChunkRetries = new ConcurrentHashMap<>();
 	private long currentTick;
+	private int totalVoxelized = 0;
 
 	private record PendingChunk(Identifier dimension, int chunkX, int chunkZ) {}
 
@@ -29,16 +30,20 @@ public class ChunkVoxelizer {
 		this.engine = engine;
 		this.syncService = syncService;
 		this.generateOnChunkLoad = config.generateOnChunkLoad;
+		VoxyServerMod.LOGGER.info("[Voxelizer] Created, generateOnChunkLoad={}", generateOnChunkLoad);
 	}
 
 	public void register() {
 		if (generateOnChunkLoad) {
 			ServerChunkEvents.CHUNK_LOAD.register((level, chunk, isNew) -> this.onChunkLoad(level, chunk));
 			ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
+			VoxyServerMod.LOGGER.info("[Voxelizer] Registered chunk load listener");
 		}
 	}
 
 	private void onChunkLoad(ServerLevel level, LevelChunk chunk) {
+		VoxyServerMod.LOGGER.debug("[Voxelizer] Chunk loaded: ({},{}) in {}",
+			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 		if (ingestChunk(level, chunk)) {
 			pendingChunkRetries.remove(new PendingChunk(level.dimension().identifier(), chunk.getPos().x(), chunk.getPos().z()));
 			return;
@@ -48,7 +53,10 @@ public class ChunkVoxelizer {
 
 	private boolean ingestChunk(ServerLevel level, LevelChunk chunk) {
 		WorldEngine world = engine.getOrCreate(level);
-		if (world == null) return false;
+		if (world == null) {
+			VoxyServerMod.LOGGER.warn("[Voxelizer] No WorldEngine for level {}", level.dimension().identifier());
+			return false;
+		}
 
 		engine.markChunkPossiblyPresent(level, chunk);
 
@@ -59,6 +67,12 @@ public class ChunkVoxelizer {
 		);
 
 		boolean enqueued = engine.getIngestService().enqueueIngest(world, chunk);
+		if (enqueued) {
+			totalVoxelized++;
+			if (totalVoxelized % 100 == 0) {
+				VoxyServerMod.LOGGER.info("[Voxelizer] Total chunks voxelized: {}", totalVoxelized);
+			}
+		}
 		return enqueued;
 	}
 
@@ -66,6 +80,8 @@ public class ChunkVoxelizer {
 	 * Re-voxelize a chunk that has been marked dirty by the timestamp scanner.
 	 */
 	public boolean revoxelizeChunk(ServerLevel level, LevelChunk chunk) {
+		VoxyServerMod.LOGGER.debug("[Voxelizer] Re-voxelizing chunk ({},{}) in {}",
+			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 		return ingestChunk(level, chunk);
 	}
 

@@ -155,6 +155,19 @@ public class ServerLodEngine extends VoxyInstance {
 		return this.dimensionsByWorld.get(worldId);
 	}
 
+	/**
+	 * Get a WorldEngine by dimension Identifier.
+	 * Looks up the WorldIdentifier from the dimension mapping and returns the engine.
+	 */
+	public WorldEngine getWorldEngineForDimension(Identifier dimension) {
+		for (var entry : this.dimensionsByWorld.entrySet()) {
+			if (entry.getValue().equals(dimension)) {
+				return this.getNullable(entry.getKey());
+			}
+		}
+		return null;
+	}
+
 	@Override
 	public void shutdown() {
 		ChunkTimestampStore.setGlobalInstance(null);

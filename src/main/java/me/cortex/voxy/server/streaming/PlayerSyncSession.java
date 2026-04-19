@@ -1,13 +1,8 @@
 package me.cortex.voxy.server.streaming;
 
-import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import me.cortex.voxy.common.world.WorldEngine;
-import me.cortex.voxy.server.merkle.MerkleHashUtil;
 import me.cortex.voxy.server.merkle.PlayerMerkleTree;
 import me.cortex.voxy.server.merkle.SectionHashStore;
-import me.cortex.voxy.server.network.LODSectionPayload;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -34,6 +29,10 @@ public class PlayerSyncSession {
 	private volatile State state = State.AWAITING_READY;
 	private volatile Identifier currentDimension;
 	private volatile PlayerMerkleTree tree;
+
+	// Current position in section coordinates
+	private volatile int currentSectionX;
+	private volatile int currentSectionZ;
 
 	// Queue of section keys to send to this player
 	private final Queue<Long> sendQueue = new ArrayDeque<>();
@@ -74,6 +73,29 @@ public class PlayerSyncSession {
 		return tree;
 	}
 
+	public void updatePosition(int sectionX, int sectionZ) {
+		this.currentSectionX = sectionX;
+		this.currentSectionZ = sectionZ;
+	}
+
+	/**
+	 * Check if the player has moved significantly from the tree center.
+	 */
+	public boolean hasMovedSignificantly(int newSectionX, int newSectionZ, int threshold) {
+		int dx = Math.abs(newSectionX - currentSectionX);
+		int dz = Math.abs(newSectionZ - currentSectionZ);
+		return dx > threshold || dz > threshold;
+	}
+
+	/**
+	 * Check if a section at (sectionX, sectionZ) is within the player's current LOD range.
+	 * Uses the player's current position, not the static tree bounds.
+	 */
+	public boolean isInRange(int sectionX, int sectionZ) {
+		if (tree == null) return false;
+		return tree.isInBounds(sectionX, sectionZ);
+	}
+
 	/**
 	 * Build the player's Merkle tree from the hash store.
 	 */
@@ -105,6 +127,7 @@ public class PlayerSyncSession {
 
 	/**
 	 * Enqueue a single section for sending (e.g., from dirty push).
+	 * Does NOT check sentSections -- dirty updates should always be re-sent.
 	 */
 	public void enqueueSection(long sectionKey) {
 		sendQueue.add(sectionKey);
@@ -127,15 +150,5 @@ public class PlayerSyncSession {
 
 	public boolean hasPendingSections() {
 		return !sendQueue.isEmpty();
-	}
-
-	/**
-	 * Check if a section's XZ position is within this player's tree bounds.
-	 */
-	public boolean isInRange(long sectionKey) {
-		if (tree == null) return false;
-		int x = WorldEngine.getX(sectionKey);
-		int z = WorldEngine.getZ(sectionKey);
-		return tree.isInBounds(x, z);
 	}
 }
