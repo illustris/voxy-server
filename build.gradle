@@ -33,9 +33,12 @@ dependencies {
 
 	implementation files("libs/voxy.jar")
 
-	// LWJGL: Voxy already bundles the correct version for dedicated servers.
-	// Do NOT include our own copy -- it causes version conflicts.
-	// On client, LWJGL comes from MC itself.
+	// LWJGL core is needed on dedicated servers (MC only bundles it for clients).
+	// Voxy bundles lwjgl-lmdb/zstd 3.4.1 but not the core lwjgl jar.
+	// Must match 3.4.1 exactly -- Voxy calls methods that differ between versions.
+	include implementation("org.lwjgl:lwjgl:3.4.1")
+	include runtimeOnly("org.lwjgl:lwjgl:3.4.1:natives-linux")
+	include runtimeOnly("org.lwjgl:lwjgl:3.4.1:natives-windows")
 
 	// xxHash for Merkle tree hashing
 	include implementation("net.openhft:zero-allocation-hashing:0.16")
