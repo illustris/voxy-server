@@ -318,10 +318,15 @@ public class SyncService {
 					if (world == null) return;
 
 					List<LODSectionPayload> sectionPayloads = new ArrayList<>();
+					int skipped = 0;
 					for (long sectionKey : batch) {
 						WorldSection section = world.acquireIfExists(sectionKey);
 						if (section == null) {
-							VoxyServerMod.LOGGER.debug("[Sync] Section {} not found, skipping", WorldEngine.pprintPos(sectionKey));
+							// Section not in memory cache -- use acquire() to load from disk
+							section = world.acquire(sectionKey);
+						}
+						if (section == null) {
+							skipped++;
 							continue;
 						}
 						try {
@@ -334,10 +339,13 @@ public class SyncService {
 						}
 					}
 
-					if (sectionPayloads.isEmpty()) return;
+					if (sectionPayloads.isEmpty()) {
+						VoxyServerMod.LOGGER.info("[Sync] Batch had 0 loadable sections (skipped {}), batch size was {}", skipped, batch.length);
+						return;
+					}
 
-					VoxyServerMod.LOGGER.debug("[Sync] Sending {} sections to {}",
-						sectionPayloads.size(), player.getName().getString());
+					VoxyServerMod.LOGGER.info("[Sync] Sending {} sections to {} (skipped {})",
+						sectionPayloads.size(), player.getName().getString(), skipped);
 
 					LODBulkPayload bulk = new LODBulkPayload(dimension, sectionPayloads);
 					PreSerializedLodPayload preserialized = PreSerializedLodPayload.fromBulk(
