@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "me.cortex.voxy.server.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"mixins": [
+		"LevelChunkMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
