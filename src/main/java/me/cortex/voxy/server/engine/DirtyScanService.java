@@ -3,7 +3,6 @@ package me.cortex.voxy.server.engine;
 import me.cortex.voxy.server.VoxyServerMod;
 import me.cortex.voxy.server.config.VoxyServerConfig;
 import me.cortex.voxy.server.streaming.SyncService;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -14,7 +13,6 @@ import java.util.List;
 /**
  * Periodically scans the ChunkTimestampStore for chunks where
  * lastBlockUpdateTick > lastVoxelizationTick and queues re-voxelization.
- * Replaces the ephemeral DirtyTracker with a persistent, restart-safe approach.
  */
 public class DirtyScanService {
 	private final ServerLodEngine engine;
@@ -31,6 +29,7 @@ public class DirtyScanService {
 		this.syncService = syncService;
 		this.scanInterval = config.dirtyScanInterval;
 		this.maxPerScan = config.maxDirtyChunksPerScan;
+		VoxyServerMod.LOGGER.info("[DirtyScan] Initialized with interval={} ticks, maxPerScan={}", scanInterval, maxPerScan);
 	}
 
 	public void tick(MinecraftServer server) {
@@ -42,19 +41,29 @@ public class DirtyScanService {
 		ChunkTimestampStore store = engine.getChunkTimestampStore();
 		List<ChunkPos> dirtyChunks = store.findDirtyChunks(maxPerScan);
 
+		if (!dirtyChunks.isEmpty()) {
+			VoxyServerMod.LOGGER.debug("[DirtyScan] Found {} dirty chunks", dirtyChunks.size());
+		}
+
 		for (ChunkPos pos : dirtyChunks) {
-			// Try to find the chunk in any loaded level
+			boolean found = false;
 			for (ServerLevel level : server.getAllLevels()) {
 				LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x(), pos.z());
 				if (chunk != null) {
+					VoxyServerMod.LOGGER.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {}",
+						pos.x(), pos.z(), level.dimension().identifier());
 					voxelizer.revoxelizeChunk(level, chunk);
+					found = true;
 					break;
 				}
+			}
+			if (!found) {
+				VoxyServerMod.LOGGER.debug("[DirtyScan] Dirty chunk ({},{}) not loaded, skipping", pos.x(), pos.z());
 			}
 		}
 	}
 
 	public void shutdown() {
-		// nothing to clean up -- state is in DB
+		// nothing to clean up
 	}
 }

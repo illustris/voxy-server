@@ -21,6 +21,9 @@ import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -28,25 +31,30 @@ import java.util.Optional;
  * Client-side handler for receiving sections and exchanging Merkle hashes with the server.
  */
 public class ClientSyncHandler {
+	private static final Logger LOGGER = LoggerFactory.getLogger("voxy-server-client");
 	private static final ClientMerkleState merkleState = new ClientMerkleState();
 
 	public static void register() {
 		// Send ready handshake when joining a server
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+			LOGGER.info("[ClientSync] Sending MerkleReadyPayload to server");
 			ClientPlayNetworking.send(new MerkleReadyPayload());
 		});
 
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+			LOGGER.info("[ClientSync] Disconnected, clearing Merkle state");
 			merkleState.clear();
 		});
 
 		// Handle server settings
 		ClientPlayNetworking.registerGlobalReceiver(MerkleSettingsPayload.TYPE, (payload, context) -> {
-			// Store settings if needed for client-side radius limiting
+			LOGGER.info("[ClientSync] Received settings: radius={} maxSections={}",
+				payload.maxRadius(), payload.maxSectionsPerTick());
 		});
 
 		// Handle L2 hashes from server - compare and respond with L1 for mismatches
 		ClientPlayNetworking.registerGlobalReceiver(MerkleL2HashesPayload.TYPE, (payload, context) -> {
+			LOGGER.info("[ClientSync] Received {} L2 hashes from server", payload.regionKeys().length);
 			context.client().execute(() -> handleL2Hashes(payload));
 		});
 
@@ -56,6 +64,7 @@ public class ClientSyncHandler {
 				ClientLevel level = Minecraft.getInstance().level;
 				if (level == null) return;
 				LODBulkPayload bulk = payload.decodeBulk(level.registryAccess());
+				LOGGER.info("[ClientSync] Received {} sections from server", bulk.sections().size());
 				for (LODSectionPayload section : bulk.sections()) {
 					handleSection(section);
 				}
@@ -81,8 +90,11 @@ public class ClientSyncHandler {
 			payload.regionKeys(), payload.regionHashes()
 		);
 
+		LOGGER.info("[ClientSync] L2 comparison: {} total regions, {} mismatched",
+			payload.regionKeys().length, mismatched.size());
+
 		if (mismatched.isEmpty()) {
-			// Everything in sync
+			LOGGER.info("[ClientSync] Fully in sync with server");
 			return;
 		}
 
