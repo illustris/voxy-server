@@ -7,6 +7,7 @@ import me.cortex.voxy.common.world.WorldSection;
 import me.cortex.voxy.server.VoxyServerMod;
 import me.cortex.voxy.server.config.VoxyServerConfig;
 import me.cortex.voxy.server.engine.ServerLodEngine;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import me.cortex.voxy.server.merkle.MerkleHashUtil;
 import me.cortex.voxy.server.merkle.PlayerMerkleTree;
 import me.cortex.voxy.server.merkle.SectionHashStore;
@@ -400,9 +401,38 @@ public class SyncService {
 						bulk, server.registryAccess()
 					);
 
+					// Compute affected L1 column hashes to send alongside section data.
+					// The client can't compute these itself (different Mapper IDs),
+					// so the server must tell it what hashes to store.
+					LongOpenHashSet affectedColumns = new LongOpenHashSet();
+					for (long sectionKey : batch) {
+						int sx = WorldEngine.getX(sectionKey);
+						int sz = WorldEngine.getZ(sectionKey);
+						affectedColumns.add(MerkleHashUtil.packColumnKey(sx, sz));
+					}
+
+					PlayerMerkleTree tree = session.getTree();
+					long[] colKeys = new long[affectedColumns.size()];
+					long[] colHashes = new long[affectedColumns.size()];
+					int hi = 0;
+					if (tree != null) {
+						for (long colKey : affectedColumns) {
+							colKeys[hi] = colKey;
+							colHashes[hi] = tree.getL1HashForColumn(colKey);
+							hi++;
+						}
+					}
+					final int hashCount = hi;
+					final MerkleHashUpdatePayload hashUpdate = new MerkleHashUpdatePayload(
+						dimension,
+						java.util.Arrays.copyOf(colKeys, hashCount),
+						java.util.Arrays.copyOf(colHashes, hashCount)
+					);
+
 					server.execute(() -> {
 						if (!player.isRemoved()) {
 							ServerPlayNetworking.send(player, preserialized);
+							ServerPlayNetworking.send(player, hashUpdate);
 						}
 					});
 				} catch (Exception e) {

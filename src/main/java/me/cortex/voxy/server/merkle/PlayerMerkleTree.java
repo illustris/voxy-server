@@ -241,6 +241,10 @@ public class PlayerMerkleTree {
 		return l0Hashes.get(sectionKey);
 	}
 
+	public long getL1HashForColumn(long columnKey) {
+		return l1Hashes.get(columnKey);
+	}
+
 	public boolean isInBounds(int sectionX, int sectionZ) {
 		return sectionX >= centerX - radius && sectionX <= centerX + radius
 			&& sectionZ >= centerZ - radius && sectionZ <= centerZ + radius;

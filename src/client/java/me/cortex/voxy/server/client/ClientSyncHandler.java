@@ -42,8 +42,10 @@ public class ClientSyncHandler {
 		});
 
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-			LOGGER.info("[ClientSync] Disconnected, clearing Merkle state");
-			merkleState.clear();
+			// Do NOT clear merkleState on disconnect -- we need it for efficient
+			// reconnection. The hashes are still valid for unchanged sections.
+			// Only clear on dimension change (LODClearPayload).
+			LOGGER.info("[ClientSync] Disconnected, preserving Merkle state for reconnection");
 		});
 
 		// Handle server settings
