@@ -123,7 +123,7 @@ public class ChunkGenerationService {
 						try {
 							ChunkAccess chunk = level.getChunkSource().getChunk(pos.x(), pos.z(), ChunkStatus.FULL, true);
 							if (chunk instanceof LevelChunk levelChunk) {
-								voxelizer.revoxelizeChunk(level, levelChunk);
+								voxelizer.voxelizeNewChunk(level, levelChunk);
 							}
 							state.completedCount++;
 							if (state.completedCount % 50 == 0) {
