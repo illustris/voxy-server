@@ -57,15 +57,19 @@ public class ChunkVoxelizer {
 
 		engine.markChunkPossiblyPresent(level, chunk);
 
-		// Skip if this chunk's sections already have hashes (already voxelized).
+		// Skip if this chunk has already been voxelized (idempotency guard).
 		// Re-voxelizing produces non-deterministic results (depends on lighting
 		// and neighbor state), causing spurious hash conflicts.
 		// Only force=true (from DirtyScanService for actual block changes) bypasses this.
+		//
+		// IMPORTANT: The marker key is per-chunk (using level=15 namespace), NOT
+		// per-WorldSection. A WorldSection covers 2x2 chunks, so a section-level
+		// check would incorrectly skip neighbor chunks that share the same section.
 		if (!force) {
-			int worldSecX = chunk.getPos().x() >> 1;
-			int worldSecZ = chunk.getPos().z() >> 1;
-			long sampleKey = me.cortex.voxy.common.world.WorldEngine.getWorldSectionId(0, worldSecX, 0, worldSecZ);
-			if (engine.getSectionHashStore().getHash(sampleKey) != 0) {
+			long chunkMarkerKey = WorldEngine.getWorldSectionId(
+				15, chunk.getPos().x(), 0, chunk.getPos().z()
+			);
+			if (engine.getSectionHashStore().getHash(chunkMarkerKey) != 0) {
 				VoxyServerMod.debug("[Voxelizer] Skipping already-voxelized chunk ({},{}) in {}",
 					chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 				return true; // pretend success so it's not retried
@@ -79,6 +83,15 @@ public class ChunkVoxelizer {
 
 		boolean enqueued = engine.getIngestService().enqueueIngest(world, chunk);
 		if (enqueued) {
+			// Mark this specific chunk as voxelized so it won't be re-voxelized
+			// on future loads. Uses level=15 namespace to avoid collisions with
+			// real section hashes (level=0).
+			if (!force) {
+				long chunkMarkerKey = WorldEngine.getWorldSectionId(
+					15, chunk.getPos().x(), 0, chunk.getPos().z()
+				);
+				engine.getSectionHashStore().putHash(chunkMarkerKey, 1L);
+			}
 			totalVoxelized++;
 			if (totalVoxelized % 100 == 0) {
 				VoxyServerMod.LOGGER.info("[Voxelizer] Total chunks voxelized: {}", totalVoxelized);
