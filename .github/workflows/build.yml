@@ -27,6 +27,7 @@ jobs:
           git clone --depth 1 https://github.com/MCRcortex/voxy.git /tmp/voxy
           cd /tmp/voxy
           ./gradlew jar
+          mkdir -p "$GITHUB_WORKSPACE/libs"
           cp build/libs/voxy-*.jar "$GITHUB_WORKSPACE/libs/voxy.jar"
 
       - name: Build mod
