@@ -85,7 +85,7 @@ Block changes are tracked via persistent timestamps in RocksDB (not an ephemeral
 ### Voxelization idempotency
 
 Voxelization is non-deterministic (depends on lighting/neighbor state). To prevent spurious hash conflicts:
-- `onChunkLoad` and `ChunkGenerationService` skip chunks that already have a hash in `SectionHashStore`
+- `onChunkLoad` and `ChunkGenerationService` skip chunks that already have a per-chunk marker in `SectionHashStore` (level=15 namespace, keyed by individual chunk position -- NOT by WorldSection position, since each section covers 2x2 chunks)
 - Only `DirtyScanService` (confirmed block changes) forces re-voxelization
 
 ## Key design decisions

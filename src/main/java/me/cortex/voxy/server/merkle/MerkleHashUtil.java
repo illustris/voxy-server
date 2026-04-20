@@ -4,6 +4,7 @@ import me.cortex.voxy.common.world.WorldEngine;
 import net.openhft.hashing.LongHashFunction;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 /**
  * Utility methods for computing Merkle tree hashes at each level.
@@ -30,13 +31,17 @@ public final class MerkleHashUtil {
 
 	/**
 	 * Compute L1 (column) hash from all L0 hashes at a given (x,z) position across all Y values.
-	 * Input: array of L0 hashes sorted by Y coordinate.
+	 * The input array is sorted before hashing to ensure order-independence --
+	 * sections may be added to a column in different orders depending on whether
+	 * the tree was built from RocksDB iteration or via incremental onL0HashChanged calls.
 	 */
 	public static long hashColumn(long[] l0Hashes) {
 		if (l0Hashes == null || l0Hashes.length == 0) return 0;
-		byte[] buf = new byte[l0Hashes.length * 8];
+		long[] sorted = l0Hashes.clone();
+		Arrays.sort(sorted);
+		byte[] buf = new byte[sorted.length * 8];
 		ByteBuffer bb = ByteBuffer.wrap(buf);
-		for (long h : l0Hashes) {
+		for (long h : sorted) {
 			bb.putLong(h);
 		}
 		return XX_HASH.hashBytes(buf);
@@ -45,12 +50,15 @@ public final class MerkleHashUtil {
 	/**
 	 * Compute L2 (region) hash from L1 hashes.
 	 * The region covers a 32x32 grid of L1 columns.
+	 * Sorted for order-independence (column insertion order varies).
 	 */
 	public static long hashRegion(long[] l1Hashes) {
 		if (l1Hashes == null || l1Hashes.length == 0) return 0;
-		byte[] buf = new byte[l1Hashes.length * 8];
+		long[] sorted = l1Hashes.clone();
+		Arrays.sort(sorted);
+		byte[] buf = new byte[sorted.length * 8];
 		ByteBuffer bb = ByteBuffer.wrap(buf);
-		for (long h : l1Hashes) {
+		for (long h : sorted) {
 			bb.putLong(h);
 		}
 		return XX_HASH.hashBytes(buf);
@@ -58,12 +66,15 @@ public final class MerkleHashUtil {
 
 	/**
 	 * Compute L3 (root) hash from all L2 region hashes.
+	 * Sorted for order-independence.
 	 */
 	public static long hashRoot(long[] l2Hashes) {
 		if (l2Hashes == null || l2Hashes.length == 0) return 0;
-		byte[] buf = new byte[l2Hashes.length * 8];
+		long[] sorted = l2Hashes.clone();
+		Arrays.sort(sorted);
+		byte[] buf = new byte[sorted.length * 8];
 		ByteBuffer bb = ByteBuffer.wrap(buf);
-		for (long h : l2Hashes) {
+		for (long h : sorted) {
 			bb.putLong(h);
 		}
 		return XX_HASH.hashBytes(buf);
