@@ -24,7 +24,7 @@ jobs:
 
       - name: Build Voxy dependency
         run: |
-          git clone --depth 1 https://github.com/cortex/voxy /tmp/voxy
+          git clone --depth 1 https://github.com/MCRcortex/voxy.git /tmp/voxy
           cd /tmp/voxy
           ./gradlew jar
           cp build/libs/voxy-*.jar "$GITHUB_WORKSPACE/libs/voxy.jar"
