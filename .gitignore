@@ -22,6 +22,9 @@ out/
 # Fabric
 .fabric/
 
+# Vendored dependencies
+libs/
+
 # OS
 .DS_Store
 Thumbs.db
