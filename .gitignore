@@ -28,3 +28,7 @@ libs/
 # OS
 .DS_Store
 Thumbs.db
+
+# local ref files
+/refs/
+/screenshots/

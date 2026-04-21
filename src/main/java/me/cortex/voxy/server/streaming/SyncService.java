@@ -442,6 +442,10 @@ public class SyncService {
 		}
 	}
 
+	public boolean hasSession(UUID playerId) {
+		return sessions.containsKey(playerId);
+	}
+
 	public void onDimensionChange(ServerPlayer player, ServerLevel newLevel) {
 		PlayerSyncSession session = sessions.get(player.getUUID());
 		if (session == null) return;

@@ -33,6 +33,11 @@ import java.util.Optional;
 public class ClientSyncHandler {
 	private static final Logger LOGGER = LoggerFactory.getLogger("voxy-server-client");
 	private static final ClientMerkleState merkleState = new ClientMerkleState();
+	private static final LODEntityManager lodEntityManager = new LODEntityManager();
+
+	public static LODEntityManager getLODEntityManager() {
+		return lodEntityManager;
+	}
 
 	public static void register() {
 		// Send ready handshake when joining a server
@@ -82,7 +87,20 @@ public class ClientSyncHandler {
 
 		// Handle clear
 		ClientPlayNetworking.registerGlobalReceiver(LODClearPayload.TYPE, (payload, context) -> {
-			context.client().execute(() -> merkleState.clear());
+			context.client().execute(() -> {
+				merkleState.clear();
+				lodEntityManager.clear();
+			});
+		});
+
+		// Handle LOD entity updates
+		ClientPlayNetworking.registerGlobalReceiver(LODEntityUpdatePayload.TYPE, (payload, context) -> {
+			context.client().execute(() -> lodEntityManager.applyUpdate(payload));
+		});
+
+		// Handle LOD entity removals
+		ClientPlayNetworking.registerGlobalReceiver(LODEntityRemovePayload.TYPE, (payload, context) -> {
+			context.client().execute(() -> lodEntityManager.applyRemoval(payload));
 		});
 	}
 

@@ -25,6 +25,12 @@ public class VoxyServerConfig {
 	public boolean passiveChunkGeneration = true;
 	public int chunkGenConcurrency = 8;
 
+	// Entity sync settings
+	public boolean enableEntitySync = true;
+	public int entitySyncIntervalTicks = 10;      // scan every 0.5s
+	public int maxLODEntitiesPerPlayer = 200;      // cap per player
+	public String entitySyncMode = "living";       // "living", "players_only", "all"
+
 	public static VoxyServerConfig load() {
 		Path configPath = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
 		if (Files.exists(configPath)) {
