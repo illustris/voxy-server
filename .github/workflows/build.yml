@@ -82,6 +82,11 @@ jobs:
           curl -L -o artifacts/fabric-api.jar \
             "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/${{ steps.versions.outputs.fabric_version }}/fabric-api-${{ steps.versions.outputs.fabric_version }}.jar"
 
+      - name: Download Sodium
+        run: |
+          curl -L -o artifacts/sodium.jar \
+            "https://cdn.modrinth.com/data/AANobbMI/versions/NbwVQD5y/sodium-fabric-0.8.9+mc26.1.1.jar"
+
       - name: Deploy to staging
         env:
           SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
@@ -102,6 +107,7 @@ jobs:
           scp $SCP_OPTS artifacts/voxy-server-*.jar "$SERVER:/server/voxy/mods/voxy-server.jar"
           scp $SCP_OPTS artifacts/voxy.jar "$SERVER:/server/voxy/mods/voxy.jar"
           scp $SCP_OPTS artifacts/fabric-api.jar "$SERVER:/server/voxy/mods/fabric-api.jar"
+          scp $SCP_OPTS artifacts/sodium.jar "$SERVER:/server/voxy/mods/sodium.jar"
 
           # Publish jar for client download via nginx
           scp $SCP_OPTS artifacts/voxy-server-*.jar "$SERVER:/server/voxy/downloads/voxy-server-latest.jar"
