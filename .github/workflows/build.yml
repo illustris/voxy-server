@@ -85,7 +85,7 @@ jobs:
       - name: Download Sodium
         run: |
           curl -L -o artifacts/sodium.jar \
-            "https://cdn.modrinth.com/data/AANobbMI/versions/NbwVQD5y/sodium-fabric-0.8.9+mc26.1.1.jar"
+            "https://cdn.modrinth.com/data/AANobbMI/versions/uGvVQBnw/sodium-fabric-0.8.9%2Bmc26.1.1.jar"
 
       - name: Deploy to staging
         env:
