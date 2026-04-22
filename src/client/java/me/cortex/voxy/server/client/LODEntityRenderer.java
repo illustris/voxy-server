@@ -20,18 +20,26 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Renders LOD-tracked entities that are outside vanilla's entity tracking range.
  * Supports two rendering modes:
  * - "billboard": colored camera-facing quads (cheap, always visible)
  * - "model": full vanilla entity models via EntityRenderDispatcher
+ *
+ * Entity types that fail to create or render as models automatically fall back
+ * to billboard rendering so they remain visible.
  */
 public class LODEntityRenderer {
 	private static final Logger LOGGER = LoggerFactory.getLogger("voxy-server-client");
@@ -47,6 +55,11 @@ public class LODEntityRenderer {
 
 	// Cached entity instances for model rendering mode (entityId -> Entity)
 	private final Int2ObjectOpenHashMap<Entity> entityCache = new Int2ObjectOpenHashMap<>();
+
+	// Entity types that failed to create or render as models -- fall back to billboard
+	private final Set<Identifier> failedEntityTypes = new HashSet<>();
+	private long failedTypesClearTimeMs = System.currentTimeMillis();
+	private static final long FAILED_TYPES_RETRY_MS = 60_000;
 
 	public LODEntityRenderer(LODEntityManager manager, VoxyServerClientConfig config) {
 		this.manager = manager;
@@ -65,19 +78,20 @@ public class LODEntityRenderer {
 		MultiBufferSource bufferSource = context.bufferSource();
 
 		if ("model".equals(config.entityRenderMode)) {
-			renderModels(mc, level, poseStack, context.submitNodeCollector(), cameraPos);
+			renderModels(mc, level, poseStack, context.submitNodeCollector(), bufferSource, cameraPos);
 		} else {
-			renderBillboards(poseStack, bufferSource, cameraPos);
+			renderBillboards(poseStack, bufferSource, cameraPos, manager.getEntities());
 		}
 
 		// Clean up cached entities that are no longer tracked
 		entityCache.keySet().removeIf(id -> !manager.hasEntity(id));
 	}
 
-	private void renderBillboards(PoseStack poseStack, MultiBufferSource bufferSource, Vec3 cameraPos) {
+	private void renderBillboards(PoseStack poseStack, MultiBufferSource bufferSource,
+								   Vec3 cameraPos, Iterable<LODEntityManager.LODEntity> entities) {
 		VertexConsumer consumer = bufferSource.getBuffer(DEBUG_QUADS_TYPE);
 
-		for (LODEntityManager.LODEntity entity : manager.getEntities()) {
+		for (LODEntityManager.LODEntity entity : entities) {
 			// Skip if vanilla is already rendering this entity
 			if (isVanillaTracked(entity.entityId())) continue;
 
@@ -115,21 +129,43 @@ public class LODEntityRenderer {
 
 	private void renderModels(Minecraft mc, ClientLevel level, PoseStack poseStack,
 							   net.minecraft.client.renderer.SubmitNodeCollector submitCollector,
-							   Vec3 cameraPos) {
+							   MultiBufferSource bufferSource, Vec3 cameraPos) {
+		// Periodically allow retries for failed entity types
+		long now = System.currentTimeMillis();
+		if (now - failedTypesClearTimeMs > FAILED_TYPES_RETRY_MS) {
+			failedEntityTypes.clear();
+			failedTypesClearTimeMs = now;
+		}
+
 		EntityRenderDispatcher dispatcher = mc.getEntityRenderDispatcher();
 		CameraRenderState cameraState = new CameraRenderState();
 		cameraState.pos = cameraPos;
 		cameraState.initialized = true;
 
+		// Collect entities that need billboard fallback
+		List<LODEntityManager.LODEntity> billboardFallback = null;
+
 		for (LODEntityManager.LODEntity lodEntity : manager.getEntities()) {
 			if (isVanillaTracked(lodEntity.entityId())) continue;
+
+			// Skip known-failed types and render as billboard instead
+			if (failedEntityTypes.contains(lodEntity.entityType())) {
+				if (billboardFallback == null) billboardFallback = new ArrayList<>();
+				billboardFallback.add(lodEntity);
+				continue;
+			}
 
 			Entity entity = entityCache.get(lodEntity.entityId());
 
 			// Create or reuse cached entity instance
 			if (entity == null) {
 				entity = createEntityInstance(level, lodEntity);
-				if (entity == null) continue;
+				if (entity == null) {
+					failedEntityTypes.add(lodEntity.entityType());
+					if (billboardFallback == null) billboardFallback = new ArrayList<>();
+					billboardFallback.add(lodEntity);
+					continue;
+				}
 				entityCache.put(lodEntity.entityId(), entity);
 			}
 
@@ -138,12 +174,20 @@ public class LODEntityRenderer {
 			double posY = lodEntity.blockY();
 			double posZ = lodEntity.blockZ() + 0.5;
 			float yaw = lodEntity.yaw() * 360.0f / 256.0f;
+			float pitch = lodEntity.pitch() * 360.0f / 256.0f;
+			float headYaw = lodEntity.headYaw() * 360.0f / 256.0f;
 
 			entity.setPos(posX, posY, posZ);
 			entity.setYRot(yaw);
 			entity.yRotO = yaw;
-			entity.setXRot(0);
-			entity.xRotO = 0;
+			entity.setXRot(pitch);
+			entity.xRotO = pitch;
+			if (entity instanceof LivingEntity le) {
+				le.yBodyRot = yaw;
+				le.yBodyRotO = yaw;
+				le.yHeadRot = headYaw;
+				le.yHeadRotO = headYaw;
+			}
 
 			double rx = posX - cameraPos.x;
 			double ry = posY - cameraPos.y;
@@ -156,9 +200,18 @@ public class LODEntityRenderer {
 				dispatcher.submit(renderState, cameraState, rx, ry, rz, poseStack, submitCollector);
 				poseStack.popPose();
 			} catch (Exception e) {
-				// Some entity types may fail to render without full initialization
-				LOGGER.debug("[LODEntity] Failed to render model for {}: {}", lodEntity.entityType(), e.getMessage());
+				LOGGER.warn("[LODEntity] Failed to render model for {}, falling back to billboard: {}",
+					lodEntity.entityType(), e.getMessage());
+				entityCache.remove(lodEntity.entityId());
+				failedEntityTypes.add(lodEntity.entityType());
+				if (billboardFallback == null) billboardFallback = new ArrayList<>();
+				billboardFallback.add(lodEntity);
 			}
+		}
+
+		// Render billboard fallback for entities that couldn't be rendered as models
+		if (billboardFallback != null) {
+			renderBillboards(poseStack, bufferSource, cameraPos, billboardFallback);
 		}
 	}
 
@@ -168,12 +221,19 @@ public class LODEntityRenderer {
 		}
 
 		Optional<EntityType<?>> typeOpt = BuiltInRegistries.ENTITY_TYPE.getOptional(lodEntity.entityType());
-		if (typeOpt.isEmpty()) return null;
+		if (typeOpt.isEmpty()) {
+			LOGGER.warn("[LODEntity] Unknown entity type: {}", lodEntity.entityType());
+			return null;
+		}
 
 		try {
-			return typeOpt.get().create(level, EntitySpawnReason.LOAD);
+			Entity entity = typeOpt.get().create(level, EntitySpawnReason.LOAD);
+			if (entity == null) {
+				LOGGER.warn("[LODEntity] EntityType.create() returned null for {}", lodEntity.entityType());
+			}
+			return entity;
 		} catch (Exception e) {
-			LOGGER.debug("[LODEntity] Failed to create entity instance for {}: {}", lodEntity.entityType(), e.getMessage());
+			LOGGER.warn("[LODEntity] Failed to create entity instance for {}: {}", lodEntity.entityType(), e.getMessage());
 			return null;
 		}
 	}
@@ -185,7 +245,7 @@ public class LODEntityRenderer {
 			);
 			return new RemotePlayer(level, profile);
 		} catch (Exception e) {
-			LOGGER.debug("[LODEntity] Failed to create player instance: {}", e.getMessage());
+			LOGGER.warn("[LODEntity] Failed to create player instance: {}", e.getMessage());
 			return null;
 		}
 	}

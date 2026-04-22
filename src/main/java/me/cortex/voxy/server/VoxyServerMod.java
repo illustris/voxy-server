@@ -113,7 +113,7 @@ public class VoxyServerMod implements ModInitializer {
 
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			if (entitySyncService != null) {
-				entitySyncService.onPlayerDisconnect(handler.getPlayer().getUUID());
+				entitySyncService.onPlayerDisconnect(handler.getPlayer().getUUID(), server);
 			}
 		});
 	}

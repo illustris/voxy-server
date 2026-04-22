@@ -25,6 +25,8 @@ public class LODEntityManager {
 		int blockY,
 		int blockZ,
 		byte yaw,
+		byte pitch,
+		byte headYaw,
 		UUID uuid,
 		long lastUpdateTimeMs
 	) {}
@@ -42,6 +44,8 @@ public class LODEntityManager {
 				payload.blockY()[i],
 				payload.blockZ()[i],
 				payload.yaw()[i],
+				payload.pitch()[i],
+				payload.headYaw()[i],
 				payload.uuid(i),
 				now
 			));

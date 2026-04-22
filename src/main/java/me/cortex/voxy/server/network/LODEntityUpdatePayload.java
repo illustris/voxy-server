@@ -19,6 +19,8 @@ public record LODEntityUpdatePayload(
 	int[] blockY,
 	int[] blockZ,
 	byte[] yaw,
+	byte[] pitch,
+	byte[] headYaw,
 	long[] uuidMost,
 	long[] uuidLeast
 ) implements CustomPacketPayload {
@@ -68,6 +70,8 @@ public record LODEntityUpdatePayload(
 			buf.writeShort(payload.blockY[i]);
 			buf.writeInt(payload.blockZ[i]);
 			buf.writeByte(payload.yaw[i]);
+			buf.writeByte(payload.pitch[i]);
+			buf.writeByte(payload.headYaw[i]);
 			buf.writeLong(payload.uuidMost[i]);
 			buf.writeLong(payload.uuidLeast[i]);
 		}
@@ -80,7 +84,7 @@ public record LODEntityUpdatePayload(
 		if (count == 0) {
 			return new LODEntityUpdatePayload(dimension,
 				new int[0], new Identifier[0], new int[0], new int[0], new int[0],
-				new byte[0], new long[0], new long[0]);
+				new byte[0], new byte[0], new byte[0], new long[0], new long[0]);
 		}
 
 		// Read entity type LUT
@@ -97,6 +101,8 @@ public record LODEntityUpdatePayload(
 		int[] blockY = new int[count];
 		int[] blockZ = new int[count];
 		byte[] yaw = new byte[count];
+		byte[] pitch = new byte[count];
+		byte[] headYaw = new byte[count];
 		long[] uuidMost = new long[count];
 		long[] uuidLeast = new long[count];
 
@@ -107,12 +113,14 @@ public record LODEntityUpdatePayload(
 			blockY[i] = buf.readShort();
 			blockZ[i] = buf.readInt();
 			yaw[i] = buf.readByte();
+			pitch[i] = buf.readByte();
+			headYaw[i] = buf.readByte();
 			uuidMost[i] = buf.readLong();
 			uuidLeast[i] = buf.readLong();
 		}
 
 		return new LODEntityUpdatePayload(dimension, entityIds, entityTypes,
-			blockX, blockY, blockZ, yaw, uuidMost, uuidLeast);
+			blockX, blockY, blockZ, yaw, pitch, headYaw, uuidMost, uuidLeast);
 	}
 
 	@Override

@@ -90,10 +90,13 @@ public class EntitySyncService {
 
 			Identifier entityType = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
 			boolean isPlayer = entity instanceof Player;
+			float headYaw = entity instanceof LivingEntity le ? le.getYHeadRot() : entity.getYRot();
 			candidates.add(new CandidateEntity(
 				entity.getId(), entityType,
 				entity.getBlockX(), entity.getBlockY(), entity.getBlockZ(),
 				(byte) (entity.getYRot() * 256.0f / 360.0f),
+				(byte) (entity.getXRot() * 256.0f / 360.0f),
+				(byte) (headYaw * 256.0f / 360.0f),
 				entity.getUUID(), isPlayer, distSq
 			));
 		}
@@ -113,7 +116,7 @@ public class EntitySyncService {
 		Int2ObjectOpenHashMap<PlayerEntityTracker.EntitySnapshot> current = new Int2ObjectOpenHashMap<>();
 		for (CandidateEntity c : candidates) {
 			current.put(c.entityId, new PlayerEntityTracker.EntitySnapshot(
-				c.entityType, c.blockX, c.blockY, c.blockZ, c.yaw, c.uuid
+				c.entityType, c.blockX, c.blockY, c.blockZ, c.yaw, c.pitch, c.headYaw, c.uuid
 			));
 		}
 
@@ -128,7 +131,8 @@ public class EntitySyncService {
 			PlayerEntityTracker.EntitySnapshot prev = lastSent.get(id);
 			if (prev == null || prev.blockX() != snap.blockX() ||
 				prev.blockY() != snap.blockY() || prev.blockZ() != snap.blockZ() ||
-				prev.yaw() != snap.yaw()) {
+				prev.yaw() != snap.yaw() || prev.pitch() != snap.pitch() ||
+				prev.headYaw() != snap.headYaw()) {
 				updateIds.add(id);
 			}
 		}
@@ -166,6 +170,8 @@ public class EntitySyncService {
 		int[] blockY = new int[count];
 		int[] blockZ = new int[count];
 		byte[] yaw = new byte[count];
+		byte[] pitch = new byte[count];
+		byte[] headYaw = new byte[count];
 		long[] uuidMost = new long[count];
 		long[] uuidLeast = new long[count];
 
@@ -178,12 +184,15 @@ public class EntitySyncService {
 			blockY[i] = snap.blockY();
 			blockZ[i] = snap.blockZ();
 			yaw[i] = snap.yaw();
+			pitch[i] = snap.pitch();
+			headYaw[i] = snap.headYaw();
 			uuidMost[i] = snap.uuid().getMostSignificantBits();
 			uuidLeast[i] = snap.uuid().getLeastSignificantBits();
 		}
 
 		ServerPlayNetworking.send(observer, new LODEntityUpdatePayload(
-			dimension, entityIds, entityTypes, blockX, blockY, blockZ, yaw, uuidMost, uuidLeast
+			dimension, entityIds, entityTypes, blockX, blockY, blockZ,
+			yaw, pitch, headYaw, uuidMost, uuidLeast
 		));
 		VoxyServerMod.debug("[EntitySync] Sent {} updates to {}",
 			count, observer.getName().getString());
@@ -197,8 +206,38 @@ public class EntitySyncService {
 		};
 	}
 
-	public void onPlayerDisconnect(UUID playerId) {
+	public void onPlayerDisconnect(UUID playerId, MinecraftServer server) {
 		trackers.remove(playerId);
+
+		// Proactively remove the disconnected player's entity from all other
+		// players' trackers and send removal packets immediately, rather than
+		// waiting for the next sync tick (the entity may still linger in the
+		// level briefly after the disconnect event fires).
+		for (var entry : trackers.entrySet()) {
+			UUID observerId = entry.getKey();
+			PlayerEntityTracker tracker = entry.getValue();
+			Int2ObjectOpenHashMap<PlayerEntityTracker.EntitySnapshot> lastSent = tracker.getLastSent();
+
+			IntArrayList removeIds = new IntArrayList();
+			for (var snapEntry : lastSent.int2ObjectEntrySet()) {
+				if (playerId.equals(snapEntry.getValue().uuid())) {
+					removeIds.add(snapEntry.getIntKey());
+				}
+			}
+
+			if (!removeIds.isEmpty()) {
+				for (int id : removeIds) {
+					lastSent.remove(id);
+				}
+
+				ServerPlayer observer = server.getPlayerList().getPlayer(observerId);
+				if (observer != null) {
+					ServerPlayNetworking.send(observer, new LODEntityRemovePayload(removeIds.toIntArray()));
+					VoxyServerMod.debug("[EntitySync] Sent {} disconnect removals for {} to {}",
+						removeIds.size(), playerId, observer.getName().getString());
+				}
+			}
+		}
 	}
 
 	public void onDimensionChange(ServerPlayer player) {
@@ -221,7 +260,8 @@ public class EntitySyncService {
 
 	private record CandidateEntity(
 		int entityId, Identifier entityType,
-		int blockX, int blockY, int blockZ, byte yaw,
+		int blockX, int blockY, int blockZ,
+		byte yaw, byte pitch, byte headYaw,
 		UUID uuid, boolean isPlayer, double distSq
 	) {}
 }

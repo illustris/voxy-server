@@ -17,6 +17,8 @@ public class PlayerEntityTracker {
 		int blockY,
 		int blockZ,
 		byte yaw,
+		byte pitch,
+		byte headYaw,
 		UUID uuid
 	) {}
 
