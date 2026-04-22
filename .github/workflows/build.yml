@@ -39,6 +39,76 @@ jobs:
           name: voxy-server
           path: build/libs/voxy-server-*.jar
 
+      - name: Upload Voxy dependency
+        uses: actions/upload-artifact@v4
+        with:
+          name: voxy-dep
+          path: libs/voxy.jar
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: staging-deploy
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: gradle.properties
+          sparse-checkout-cone-mode: false
+
+      - name: Read Fabric API version
+        id: versions
+        run: |
+          fabric_version=$(grep '^fabric_version=' gradle.properties | cut -d= -f2)
+          echo "fabric_version=$fabric_version" >> "$GITHUB_OUTPUT"
+
+      - name: Download voxy-server artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: voxy-server
+          path: artifacts/
+
+      - name: Download Voxy dependency
+        uses: actions/download-artifact@v4
+        with:
+          name: voxy-dep
+          path: artifacts/
+
+      - name: Download Fabric API
+        run: |
+          curl -L -o artifacts/fabric-api.jar \
+            "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/${{ steps.versions.outputs.fabric_version }}/fabric-api-${{ steps.versions.outputs.fabric_version }}.jar"
+
+      - name: Deploy to staging
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          SERVER: mc@148.113.25.30
+          SSH_PORT: "2244"
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          SSH_OPTS="-o StrictHostKeyChecking=no -i ~/.ssh/deploy_key -p $SSH_PORT"
+
+          SCP_OPTS="-o StrictHostKeyChecking=no -i ~/.ssh/deploy_key -P $SSH_PORT"
+
+          # Stop server gracefully
+          ssh $SSH_OPTS "$SERVER" "sudo /run/current-system/sw/bin/systemctl stop voxy-server" || true
+
+          # Deploy mod jars to server
+          scp $SCP_OPTS artifacts/voxy-server-*.jar "$SERVER:/server/voxy/mods/voxy-server.jar"
+          scp $SCP_OPTS artifacts/voxy.jar "$SERVER:/server/voxy/mods/voxy.jar"
+          scp $SCP_OPTS artifacts/fabric-api.jar "$SERVER:/server/voxy/mods/fabric-api.jar"
+
+          # Publish jar for client download via nginx
+          scp $SCP_OPTS artifacts/voxy-server-*.jar "$SERVER:/server/voxy/downloads/voxy-server-latest.jar"
+
+          # Start server
+          ssh $SSH_OPTS "$SERVER" "sudo /run/current-system/sw/bin/systemctl start voxy-server"
+
   publish:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
