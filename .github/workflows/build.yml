@@ -37,7 +37,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: voxy-server
-          path: build/libs/voxy-server-*.jar
+          path: |
+            build/libs/voxy-server-*.jar
+            !build/libs/voxy-server-*-sources.jar
 
       - name: Upload Voxy dependency
         uses: actions/upload-artifact@v4
@@ -100,17 +102,20 @@ jobs:
 
           SCP_OPTS="-o StrictHostKeyChecking=no -i ~/.ssh/deploy_key -P $SSH_PORT"
 
+          # Resolve the mod jar (exclude -sources.jar)
+          MOD_JAR=$(ls artifacts/voxy-server-*.jar | grep -v sources | head -1)
+
           # Stop server gracefully
           ssh $SSH_OPTS "$SERVER" "sudo /run/current-system/sw/bin/systemctl stop voxy-server" || true
 
           # Deploy mod jars to server
-          scp $SCP_OPTS artifacts/voxy-server-*.jar "$SERVER:/server/voxy/mods/voxy-server.jar"
+          scp $SCP_OPTS "$MOD_JAR" "$SERVER:/server/voxy/mods/voxy-server.jar"
           scp $SCP_OPTS artifacts/voxy.jar "$SERVER:/server/voxy/mods/voxy.jar"
           scp $SCP_OPTS artifacts/fabric-api.jar "$SERVER:/server/voxy/mods/fabric-api.jar"
           scp $SCP_OPTS artifacts/sodium.jar "$SERVER:/server/voxy/mods/sodium.jar"
 
           # Publish jar for client download via nginx
-          scp $SCP_OPTS artifacts/voxy-server-*.jar "$SERVER:/server/voxy/downloads/voxy-server-latest.jar"
+          scp $SCP_OPTS "$MOD_JAR" "$SERVER:/server/voxy/downloads/voxy-server-latest.jar"
 
           # Start server
           ssh $SSH_OPTS "$SERVER" "sudo /run/current-system/sw/bin/systemctl start voxy-server"
