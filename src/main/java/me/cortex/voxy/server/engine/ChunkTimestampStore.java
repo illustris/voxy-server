@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Persists per-chunk timestamps for block updates and voxelization.
@@ -26,10 +27,13 @@ import java.util.List;
  * Value: lastBlockUpdateTick (8 bytes) + lastVoxelizationTick (8 bytes)
  */
 public class ChunkTimestampStore {
+	public record BlockChangeInfo(int x, int y, int z, String oldState, String newState, int count) {}
+
 	private static volatile ChunkTimestampStore GLOBAL_INSTANCE;
 
 	private final RocksDB db;
 	private final Path dbPath;
+	private final ConcurrentHashMap<Long, BlockChangeInfo> lastBlockChanges = new ConcurrentHashMap<>();
 
 	public ChunkTimestampStore(Path storagePath) {
 		this.dbPath = storagePath;
@@ -51,13 +55,16 @@ public class ChunkTimestampStore {
 	/**
 	 * Called from the mixin when a block changes.
 	 */
-	public static void onBlockChanged(ServerLevel level, BlockPos pos) {
+	public static void onBlockChanged(ServerLevel level, BlockPos pos, String oldState, String newState) {
 		ChunkTimestampStore store = GLOBAL_INSTANCE;
 		if (store == null) return;
 		int chunkX = pos.getX() >> 4;
 		int chunkZ = pos.getZ() >> 4;
 		long currentTick = level.getServer().getTickCount();
 		store.markBlockUpdated(chunkX, chunkZ, currentTick);
+		store.recordBlockChange(chunkX, chunkZ, pos.getX(), pos.getY(), pos.getZ(), oldState, newState);
+		VoxyServerMod.debug("[BlockChange] ({},{},{}) {} -> {} in chunk ({},{})",
+			pos.getX(), pos.getY(), pos.getZ(), oldState, newState, chunkX, chunkZ);
 	}
 
 	public void markBlockUpdated(int chunkX, int chunkZ, long currentTick) {
@@ -145,6 +152,22 @@ public class ChunkTimestampStore {
 		return dirty;
 	}
 
+	private void recordBlockChange(int chunkX, int chunkZ, int x, int y, int z, String oldState, String newState) {
+		long key = packMapKey(chunkX, chunkZ);
+		lastBlockChanges.merge(key,
+			new BlockChangeInfo(x, y, z, oldState, newState, 1),
+			(existing, incoming) -> new BlockChangeInfo(x, y, z, oldState, newState, existing.count() + 1)
+		);
+	}
+
+	/**
+	 * Returns and removes the last block change info for the given chunk.
+	 * Used by DirtyScanService to include trigger details in debug logs.
+	 */
+	public BlockChangeInfo getAndClearBlockChangeInfo(int chunkX, int chunkZ) {
+		return lastBlockChanges.remove(packMapKey(chunkX, chunkZ));
+	}
+
 	public void close() {
 		db.close();
 	}
@@ -153,5 +176,9 @@ public class ChunkTimestampStore {
 		byte[] key = new byte[8];
 		ByteBuffer.wrap(key).putInt(chunkX).putInt(chunkZ);
 		return key;
+	}
+
+	private static long packMapKey(int chunkX, int chunkZ) {
+		return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
 	}
 }

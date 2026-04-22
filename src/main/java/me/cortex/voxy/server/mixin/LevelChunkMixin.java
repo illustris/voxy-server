@@ -28,7 +28,8 @@ public abstract class LevelChunkMixin {
 			// (ores, trees, features etc.) which would flood the timestamp store.
 			LevelChunk self = (LevelChunk) (Object) this;
 			if (self.getFullStatus() != null && self.getFullStatus().isOrAfter(net.minecraft.server.level.FullChunkStatus.FULL)) {
-				ChunkTimestampStore.onBlockChanged(serverLevel, pos);
+				ChunkTimestampStore.onBlockChanged(serverLevel, pos,
+						cir.getReturnValue().toString(), state.toString());
 			}
 		}
 	}

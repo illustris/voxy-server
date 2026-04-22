@@ -40,12 +40,20 @@ public class DirtyScanService {
 		}
 
 		for (ChunkPos pos : dirtyChunks) {
+			ChunkTimestampStore.BlockChangeInfo changeInfo = store.getAndClearBlockChangeInfo(pos.x(), pos.z());
 			boolean found = false;
 			for (ServerLevel level : server.getAllLevels()) {
 				LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x(), pos.z());
 				if (chunk != null) {
-					VoxyServerMod.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {}",
-						pos.x(), pos.z(), level.dimension().identifier());
+					if (changeInfo != null) {
+						VoxyServerMod.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {}, triggered by {} block change(s), last: ({},{},{}) {} -> {}",
+							pos.x(), pos.z(), level.dimension().identifier(),
+							changeInfo.count(), changeInfo.x(), changeInfo.y(), changeInfo.z(),
+							changeInfo.oldState(), changeInfo.newState());
+					} else {
+						VoxyServerMod.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {} (trigger info unavailable, likely from previous session)",
+							pos.x(), pos.z(), level.dimension().identifier());
+					}
 					voxelizer.revoxelizeChunk(level, chunk);
 					found = true;
 					break;
