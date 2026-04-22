@@ -16,6 +16,7 @@ public class VoxyServerClientConfig {
 	private static final String FILE_NAME = "voxy-server-client.json";
 
 	public String entityRenderMode = "billboard"; // "billboard" or "model"
+	public boolean debugLogging = false;
 
 	public static VoxyServerClientConfig load() {
 		Path configPath = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);

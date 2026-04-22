@@ -20,6 +20,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -133,6 +134,9 @@ public class LODEntityRenderer {
 		// Periodically allow retries for failed entity types
 		long now = System.currentTimeMillis();
 		if (now - failedTypesClearTimeMs > FAILED_TYPES_RETRY_MS) {
+			if (config.debugLogging && !failedEntityTypes.isEmpty()) {
+				LOGGER.info("[LODEntity] Clearing {} failed entity types for retry", failedEntityTypes.size());
+			}
 			failedEntityTypes.clear();
 			failedTypesClearTimeMs = now;
 		}
@@ -144,24 +148,31 @@ public class LODEntityRenderer {
 
 		// Collect entities that need billboard fallback
 		List<LODEntityManager.LODEntity> billboardFallback = null;
+		int modelCount = 0, skippedCount = 0, failedCount = 0, debugLogCount = 0;
 
 		for (LODEntityManager.LODEntity lodEntity : manager.getEntities()) {
-			if (isVanillaTracked(lodEntity.entityId())) continue;
+			if (isVanillaTracked(lodEntity.entityId())) {
+				skippedCount++;
+				continue;
+			}
 
 			// Skip known-failed types and render as billboard instead
 			if (failedEntityTypes.contains(lodEntity.entityType())) {
+				failedCount++;
 				if (billboardFallback == null) billboardFallback = new ArrayList<>();
 				billboardFallback.add(lodEntity);
 				continue;
 			}
 
 			Entity entity = entityCache.get(lodEntity.entityId());
+			boolean cached = entity != null;
 
 			// Create or reuse cached entity instance
 			if (entity == null) {
 				entity = createEntityInstance(level, lodEntity);
 				if (entity == null) {
 					failedEntityTypes.add(lodEntity.entityType());
+					failedCount++;
 					if (billboardFallback == null) billboardFallback = new ArrayList<>();
 					billboardFallback.add(lodEntity);
 					continue;
@@ -178,6 +189,9 @@ public class LODEntityRenderer {
 			float headYaw = lodEntity.headYaw() * 360.0f / 256.0f;
 
 			entity.setPos(posX, posY, posZ);
+			entity.xOld = posX;
+			entity.yOld = posY;
+			entity.zOld = posZ;
 			entity.setYRot(yaw);
 			entity.yRotO = yaw;
 			entity.setXRot(pitch);
@@ -193,25 +207,47 @@ public class LODEntityRenderer {
 			double ry = posY - cameraPos.y;
 			double rz = posZ - cameraPos.z;
 
+			// Save poseStack state so we can restore it if submit leaks pushPose calls
+			var savedPose = poseStack.last();
 			try {
-				// Extract render state and submit to the render pipeline
 				EntityRenderState renderState = dispatcher.extractEntity(entity, 0.0f);
+				// LOD entities are in chunks not loaded on the client, so light data
+				// is unavailable. Use full sky brightness as a reasonable approximation.
+				renderState.lightCoords = LightCoordsUtil.FULL_SKY;
 				poseStack.pushPose();
 				dispatcher.submit(renderState, cameraState, rx, ry, rz, poseStack, submitCollector);
 				poseStack.popPose();
+				modelCount++;
+
+				if (config.debugLogging && debugLogCount++ < 3) {
+					LOGGER.info("[LODEntity] Rendered model: type={} pos=({},{},{}) cached={}",
+						lodEntity.entityType(), (int) posX, (int) posY, (int) posZ, cached);
+				}
 			} catch (Exception e) {
+				// Restore poseStack: pop leaked entries from dispatcher/renderer internals
+				while (poseStack.last() != savedPose) {
+					poseStack.popPose();
+				}
 				LOGGER.warn("[LODEntity] Failed to render model for {}, falling back to billboard: {}",
 					lodEntity.entityType(), e.getMessage());
 				entityCache.remove(lodEntity.entityId());
 				failedEntityTypes.add(lodEntity.entityType());
+				failedCount++;
 				if (billboardFallback == null) billboardFallback = new ArrayList<>();
 				billboardFallback.add(lodEntity);
 			}
 		}
 
 		// Render billboard fallback for entities that couldn't be rendered as models
+		int billboardCount = 0;
 		if (billboardFallback != null) {
+			billboardCount = billboardFallback.size();
 			renderBillboards(poseStack, bufferSource, cameraPos, billboardFallback);
+		}
+
+		if (config.debugLogging) {
+			LOGGER.info("[LODEntity] Frame: models={} billboards={} skipped={} failed={}",
+				modelCount, billboardCount, skippedCount, failedCount);
 		}
 	}
 
@@ -230,6 +266,8 @@ public class LODEntityRenderer {
 			Entity entity = typeOpt.get().create(level, EntitySpawnReason.LOAD);
 			if (entity == null) {
 				LOGGER.warn("[LODEntity] EntityType.create() returned null for {}", lodEntity.entityType());
+			} else if (config.debugLogging) {
+				LOGGER.info("[LODEntity] Created entity instance: type={}", lodEntity.entityType());
 			}
 			return entity;
 		} catch (Exception e) {
