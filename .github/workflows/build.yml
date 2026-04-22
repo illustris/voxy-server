@@ -86,7 +86,7 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           SERVER: mc@148.113.25.30
-          SSH_PORT: "2244"
+          SSH_PORT: "2223"
         run: |
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/deploy_key
