@@ -22,11 +22,23 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Get Voxy dependency commit hash
+        id: voxy-rev
+        run: echo "rev=$(git ls-remote https://github.com/MCRcortex/voxy.git HEAD | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Voxy dependency
+        id: voxy-cache
+        uses: actions/cache@v4
+        with:
+          path: libs/voxy.jar
+          key: voxy-dep-${{ steps.voxy-rev.outputs.rev }}
+
       - name: Build Voxy dependency
+        if: steps.voxy-cache.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/MCRcortex/voxy.git /tmp/voxy
           cd /tmp/voxy
-          ./gradlew jar
+          ./gradlew jar --no-daemon
           mkdir -p "$GITHUB_WORKSPACE/libs"
           cp build/libs/voxy-*.jar "$GITHUB_WORKSPACE/libs/voxy.jar"
 
@@ -79,15 +91,30 @@ jobs:
           name: voxy-dep
           path: artifacts/
 
+      - name: Cache deploy dependencies
+        id: deploy-cache
+        uses: actions/cache@v4
+        with:
+          path: deploy-cache/
+          key: deploy-deps-fabric-${{ steps.versions.outputs.fabric_version }}-sodium-0.8.9
+
       - name: Download Fabric API
+        if: steps.deploy-cache.outputs.cache-hit != 'true'
         run: |
-          curl -L -o artifacts/fabric-api.jar \
+          mkdir -p deploy-cache
+          curl -L -o deploy-cache/fabric-api.jar \
             "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/${{ steps.versions.outputs.fabric_version }}/fabric-api-${{ steps.versions.outputs.fabric_version }}.jar"
 
       - name: Download Sodium
+        if: steps.deploy-cache.outputs.cache-hit != 'true'
         run: |
-          curl -L -o artifacts/sodium.jar \
+          curl -L -o deploy-cache/sodium.jar \
             "https://cdn.modrinth.com/data/AANobbMI/versions/uGvVQBnw/sodium-fabric-0.8.9%2Bmc26.1.1.jar"
+
+      - name: Copy cached deps to artifacts
+        run: |
+          cp deploy-cache/fabric-api.jar artifacts/fabric-api.jar
+          cp deploy-cache/sodium.jar artifacts/sodium.jar
 
       - name: Deploy to staging
         env:

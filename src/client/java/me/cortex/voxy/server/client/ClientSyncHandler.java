@@ -50,27 +50,32 @@ public class ClientSyncHandler {
 			// Do NOT clear merkleState on disconnect -- we need it for efficient
 			// reconnection. The hashes are still valid for unchanged sections.
 			// Only clear on dimension change (LODClearPayload).
+			VoxyBandwidthTracker.reset();
 			LOGGER.info("[ClientSync] Disconnected, preserving Merkle state for reconnection");
 		});
 
 		// Handle server settings
 		ClientPlayNetworking.registerGlobalReceiver(MerkleSettingsPayload.TYPE, (payload, context) -> {
+			VoxyBandwidthTracker.recordBytes("merkle", 8);
 			LOGGER.info("[ClientSync] Received settings: radius={} maxSections={}",
 				payload.maxRadius(), payload.maxSectionsPerTick());
 		});
 
 		// Handle L2 hashes from server - compare and respond with L1 for mismatches
 		ClientPlayNetworking.registerGlobalReceiver(MerkleL2HashesPayload.TYPE, (payload, context) -> {
+			VoxyBandwidthTracker.recordBytes("merkle", payload.regionKeys().length * 16);
 			LOGGER.info("[ClientSync] Received {} L2 hashes from server", payload.regionKeys().length);
 			context.client().execute(() -> handleL2Hashes(payload));
 		});
 
 		// Handle section data from server
 		ClientPlayNetworking.registerGlobalReceiver(PreSerializedLodPayload.TYPE, (payload, context) -> {
+			VoxyBandwidthTracker.recordBytes("sections", payload.data().length);
 			context.client().execute(() -> {
 				ClientLevel level = Minecraft.getInstance().level;
 				if (level == null) return;
 				LODBulkPayload bulk = payload.decodeBulk(level.registryAccess());
+				VoxyBandwidthTracker.recordSections(bulk.sections().size());
 				LOGGER.info("[ClientSync] Received {} sections from server", bulk.sections().size());
 				for (LODSectionPayload section : bulk.sections()) {
 					handleSection(section);
@@ -80,6 +85,7 @@ public class ClientSyncHandler {
 
 		// Handle hash updates from server
 		ClientPlayNetworking.registerGlobalReceiver(MerkleHashUpdatePayload.TYPE, (payload, context) -> {
+			VoxyBandwidthTracker.recordBytes("merkle", payload.columnKeys().length * 16);
 			context.client().execute(() -> {
 				merkleState.updateL1Hashes(payload.columnKeys(), payload.columnHashes());
 			});
@@ -95,11 +101,13 @@ public class ClientSyncHandler {
 
 		// Handle LOD entity updates
 		ClientPlayNetworking.registerGlobalReceiver(LODEntityUpdatePayload.TYPE, (payload, context) -> {
+			VoxyBandwidthTracker.recordBytes("entities", payload.count() * 37 + 16);
 			context.client().execute(() -> lodEntityManager.applyUpdate(payload));
 		});
 
 		// Handle LOD entity removals
 		ClientPlayNetworking.registerGlobalReceiver(LODEntityRemovePayload.TYPE, (payload, context) -> {
+			VoxyBandwidthTracker.recordBytes("entities", payload.entityIds().length * 5 + 4);
 			context.client().execute(() -> lodEntityManager.applyRemoval(payload));
 		});
 	}

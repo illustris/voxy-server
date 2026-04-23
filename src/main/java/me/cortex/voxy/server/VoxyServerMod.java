@@ -30,9 +30,14 @@ public class VoxyServerMod implements ModInitializer {
 	private EntitySyncService entitySyncService;
 
 	private static volatile boolean debugEnabled = false;
+	private static volatile EntitySyncService entitySyncServiceInstance;
 
 	public static VoxyServerConfig getConfig() {
 		return config;
+	}
+
+	public static EntitySyncService getEntitySyncService() {
+		return entitySyncServiceInstance;
 	}
 
 	public static boolean isDebug() {
@@ -73,6 +78,7 @@ public class VoxyServerMod implements ModInitializer {
 			dirtyScanService = new DirtyScanService(lodEngine, chunkVoxelizer, syncService, config);
 			if (config.enableEntitySync) {
 				entitySyncService = new EntitySyncService(config, syncService);
+				entitySyncServiceInstance = entitySyncService;
 			}
 
 			ServerTickEvents.END_SERVER_TICK.register(tick -> {
@@ -88,6 +94,7 @@ public class VoxyServerMod implements ModInitializer {
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			if (lodEngine != null) {
 				LOGGER.info("Shutting down Voxy Server engine");
+				entitySyncServiceInstance = null;
 				if (entitySyncService != null) entitySyncService.shutdown();
 				if (chunkGenService != null) chunkGenService.shutdown();
 				if (syncService != null) syncService.shutdown();

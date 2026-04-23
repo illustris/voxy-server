@@ -30,6 +30,9 @@ public class VoxyServerConfig {
 	public int entitySyncIntervalTicks = 10;      // scan every 0.5s
 	public int maxLODEntitiesPerPlayer = 200;      // cap per player
 	public String entitySyncMode = "living";       // "living", "players_only", "all"
+	// "custom": low-bandwidth LOD entity packets (block precision, ~10 tick interval)
+	// "native": minecraft's native entity tracking (full models/animations, higher bandwidth)
+	public String entitySyncTransport = "custom";
 
 	public static VoxyServerConfig load() {
 		Path configPath = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);

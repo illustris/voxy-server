@@ -1,10 +1,12 @@
 package me.cortex.voxy.server.client;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
+import me.cortex.voxy.server.mixin.client.DebugScreenEntriesAccessor;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal;
@@ -16,6 +18,12 @@ public class VoxyServerClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		ClientSyncHandler.register();
+
+		// Register voxy bandwidth stats in the F3 debug screen
+		DebugScreenEntriesAccessor.invokeRegister(
+			Identifier.parse("voxy-server:bandwidth"),
+			new VoxyBandwidthDebugEntry()
+		);
 
 		clientConfig = VoxyServerClientConfig.load();
 		LODEntityRenderer entityRenderer = new LODEntityRenderer(
