@@ -104,13 +104,17 @@ public class LODEntityRenderer {
 			lastTickedGameTime = gameTime;
 			for (Entity entity : nativeFarEntities) {
 				boolean wasNoPhysics = entity.noPhysics;
+				boolean wasOnGround = entity.onGround();
 				entity.noPhysics = true;
+				entity.setOnGround(true);
+				entity.setDeltaMovement(Vec3.ZERO);
 				try {
 					entity.tick();
 				} catch (Exception e) {
 					// Entity tick may fail without loaded chunk data -- safe to skip
 				} finally {
 					entity.noPhysics = wasNoPhysics;
+					entity.setOnGround(wasOnGround);
 				}
 			}
 		}
