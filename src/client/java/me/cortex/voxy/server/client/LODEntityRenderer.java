@@ -39,6 +39,11 @@ import java.util.Set;
  * - "billboard": colored camera-facing quads (cheap, always visible)
  * - "model": full vanilla entity models via EntityRenderDispatcher
  *
+ * Entities are sourced from two places:
+ * - LODEntityManager: entities sent via custom LOD packets (custom transport mode)
+ * - ClientLevel: entities sent via vanilla tracking packets (native transport mode)
+ *   that are in unloaded chunks (vanilla's LevelRenderer won't render them)
+ *
  * Entity types that fail to create or render as models automatically fall back
  * to billboard rendering so they remain visible.
  */
@@ -54,7 +59,9 @@ public class LODEntityRenderer {
 	private final LODEntityManager manager;
 	private final VoxyServerClientConfig config;
 
-	// Cached entity instances for model rendering mode (entityId -> Entity)
+	// Cached entity instances for model rendering mode in custom transport
+	// (entityId -> dummy Entity). Not used for native transport entities since
+	// those already exist as real Entity instances in ClientLevel.
 	private final Int2ObjectOpenHashMap<Entity> entityCache = new Int2ObjectOpenHashMap<>();
 
 	// Entity types that failed to create or render as models -- fall back to billboard
@@ -68,69 +75,128 @@ public class LODEntityRenderer {
 	}
 
 	public void render(LevelRenderContext context) {
-		if (manager.size() == 0) return;
-
 		Minecraft mc = Minecraft.getInstance();
 		ClientLevel level = mc.level;
 		if (level == null) return;
+
+		// Collect native far entities: real Entity instances in ClientLevel whose
+		// chunks aren't loaded on the client (vanilla's LevelRenderer skips these).
+		// In native transport mode the server adds them via vanilla tracking packets;
+		// in custom mode this list will be empty.
+		List<Entity> nativeFarEntities = collectNativeFarEntities(mc, level);
+
+		if (manager.size() == 0 && nativeFarEntities.isEmpty()) return;
 
 		Vec3 cameraPos = mc.gameRenderer.getMainCamera().position();
 		PoseStack poseStack = context.poseStack();
 		MultiBufferSource bufferSource = context.bufferSource();
 
 		if ("model".equals(config.entityRenderMode)) {
-			renderModels(mc, level, poseStack, context.submitNodeCollector(), bufferSource, cameraPos);
+			renderModels(mc, level, poseStack, context.submitNodeCollector(), bufferSource, cameraPos, nativeFarEntities);
 		} else {
-			renderBillboards(poseStack, bufferSource, cameraPos, manager.getEntities());
+			renderBillboards(poseStack, bufferSource, cameraPos, nativeFarEntities);
 		}
 
-		// Clean up cached entities that are no longer tracked
+		// Clean up cached dummy entities that are no longer tracked via custom mode
 		entityCache.keySet().removeIf(id -> !manager.hasEntity(id));
 	}
 
+	/**
+	 * Find entities in ClientLevel that exist but whose chunk section is not
+	 * loaded on the client. These are entities the server is tracking via native
+	 * transport -- vanilla spawned them but LevelRenderer won't render them
+	 * because isSectionCompiledAndVisible() fails for unloaded chunks.
+	 */
+	private List<Entity> collectNativeFarEntities(Minecraft mc, ClientLevel level) {
+		List<Entity> result = new ArrayList<>();
+		for (Entity entity : level.entitiesForRendering()) {
+			if (entity == mc.player) continue;
+			// Already tracked via custom LOD packets -- handled separately
+			if (manager.hasEntity(entity.getId())) continue;
+			// Entity is in a loaded chunk -- vanilla renders it, skip
+			if (isInLoadedChunk(level, entity)) continue;
+			result.add(entity);
+		}
+		return result;
+	}
+
+	/**
+	 * Returns true if the entity's chunk is loaded on the client, meaning
+	 * vanilla's LevelRenderer will handle rendering. We should not LOD-render
+	 * entities that vanilla is already rendering.
+	 */
+	private static boolean isInLoadedChunk(ClientLevel level, Entity entity) {
+		return level.getChunkSource().hasChunk(
+			entity.getBlockX() >> 4, entity.getBlockZ() >> 4
+		);
+	}
+
+	// ---- Billboard rendering ------------------------------------------------
+
 	private void renderBillboards(PoseStack poseStack, MultiBufferSource bufferSource,
-								   Vec3 cameraPos, Iterable<LODEntityManager.LODEntity> entities) {
+								   Vec3 cameraPos, List<Entity> nativeFarEntities) {
 		VertexConsumer consumer = bufferSource.getBuffer(DEBUG_QUADS_TYPE);
 
-		for (LODEntityManager.LODEntity entity : entities) {
-			// Skip if vanilla is already rendering this entity
-			if (isVanillaTracked(entity.entityId())) continue;
+		// Render custom-mode entities from LODEntityManager
+		for (LODEntityManager.LODEntity entity : manager.getEntities()) {
+			if (isInLoadedChunkById(entity.entityId())) continue;
 
-			double x = entity.blockX() + 0.5 - cameraPos.x;
-			double y = entity.blockY() - cameraPos.y;
-			double z = entity.blockZ() + 0.5 - cameraPos.z;
-
-			float[] color = getEntityColor(entity.entityType());
+			Identifier entityType = entity.entityType();
+			float[] color = getEntityColor(entityType);
 			float halfWidth = 0.3f;
-			float height = isPlayerType(entity.entityType()) ? 1.8f : 1.0f;
+			float height = isPlayerType(entityType) ? 1.8f : 1.0f;
 
-			// Camera-facing billboard
-			poseStack.pushPose();
-			poseStack.translate(x, y, z);
+			renderBillboardQuad(consumer, poseStack, cameraPos,
+				entity.blockX() + 0.5, entity.blockY(), entity.blockZ() + 0.5,
+				color, halfWidth, height);
+		}
 
-			// Face the camera by rotating around Y axis
-			float cameraYaw = (float) Math.atan2(x, z);
-			poseStack.mulPose(Axis.YP.rotation(cameraYaw));
+		// Render native-mode entities from ClientLevel
+		for (Entity entity : nativeFarEntities) {
+			Identifier entityType = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
+			float[] color = getEntityColor(entityType);
+			float halfWidth = 0.3f;
+			float height = isPlayerType(entityType) ? 1.8f : 1.0f;
 
-			Matrix4f matrix = poseStack.last().pose();
-
-			// Draw a filled quad (4 vertices for QUADS mode)
-			consumer.addVertex(matrix, -halfWidth, 0, 0)
-				.setColor(color[0], color[1], color[2], 0.8f);
-			consumer.addVertex(matrix, halfWidth, 0, 0)
-				.setColor(color[0], color[1], color[2], 0.8f);
-			consumer.addVertex(matrix, halfWidth, height, 0)
-				.setColor(color[0], color[1], color[2], 0.8f);
-			consumer.addVertex(matrix, -halfWidth, height, 0)
-				.setColor(color[0], color[1], color[2], 0.8f);
-
-			poseStack.popPose();
+			renderBillboardQuad(consumer, poseStack, cameraPos,
+				entity.getX(), entity.getY(), entity.getZ(),
+				color, halfWidth, height);
 		}
 	}
 
+	private void renderBillboardQuad(VertexConsumer consumer, PoseStack poseStack,
+									  Vec3 cameraPos, double posX, double posY, double posZ,
+									  float[] color, float halfWidth, float height) {
+		double x = posX - cameraPos.x;
+		double y = posY - cameraPos.y;
+		double z = posZ - cameraPos.z;
+
+		poseStack.pushPose();
+		poseStack.translate(x, y, z);
+
+		float cameraYaw = (float) Math.atan2(x, z);
+		poseStack.mulPose(Axis.YP.rotation(cameraYaw));
+
+		Matrix4f matrix = poseStack.last().pose();
+
+		consumer.addVertex(matrix, -halfWidth, 0, 0)
+			.setColor(color[0], color[1], color[2], 0.8f);
+		consumer.addVertex(matrix, halfWidth, 0, 0)
+			.setColor(color[0], color[1], color[2], 0.8f);
+		consumer.addVertex(matrix, halfWidth, height, 0)
+			.setColor(color[0], color[1], color[2], 0.8f);
+		consumer.addVertex(matrix, -halfWidth, height, 0)
+			.setColor(color[0], color[1], color[2], 0.8f);
+
+		poseStack.popPose();
+	}
+
+	// ---- Model rendering ----------------------------------------------------
+
 	private void renderModels(Minecraft mc, ClientLevel level, PoseStack poseStack,
 							   net.minecraft.client.renderer.SubmitNodeCollector submitCollector,
-							   MultiBufferSource bufferSource, Vec3 cameraPos) {
+							   MultiBufferSource bufferSource, Vec3 cameraPos,
+							   List<Entity> nativeFarEntities) {
 		// Periodically allow retries for failed entity types
 		long now = System.currentTimeMillis();
 		if (now - failedTypesClearTimeMs > FAILED_TYPES_RETRY_MS) {
@@ -147,40 +213,44 @@ public class LODEntityRenderer {
 		cameraState.initialized = true;
 
 		// Collect entities that need billboard fallback
-		List<LODEntityManager.LODEntity> billboardFallback = null;
+		List<BillboardFallback> billboardFallback = null;
 		int modelCount = 0, skippedCount = 0, failedCount = 0, debugLogCount = 0;
 
+		// ---- Custom-mode entities from LODEntityManager ----
 		for (LODEntityManager.LODEntity lodEntity : manager.getEntities()) {
-			if (isVanillaTracked(lodEntity.entityId())) {
+			if (isInLoadedChunkById(lodEntity.entityId())) {
 				skippedCount++;
 				continue;
 			}
 
+			Identifier entityType = lodEntity.entityType();
+
 			// Skip known-failed types and render as billboard instead
-			if (failedEntityTypes.contains(lodEntity.entityType())) {
+			if (failedEntityTypes.contains(entityType)) {
 				failedCount++;
 				if (billboardFallback == null) billboardFallback = new ArrayList<>();
-				billboardFallback.add(lodEntity);
+				billboardFallback.add(new BillboardFallback(
+					lodEntity.blockX() + 0.5, lodEntity.blockY(), lodEntity.blockZ() + 0.5, entityType));
 				continue;
 			}
 
 			Entity entity = entityCache.get(lodEntity.entityId());
 			boolean cached = entity != null;
 
-			// Create or reuse cached entity instance
 			if (entity == null) {
 				entity = createEntityInstance(level, lodEntity);
 				if (entity == null) {
-					failedEntityTypes.add(lodEntity.entityType());
+					failedEntityTypes.add(entityType);
 					failedCount++;
 					if (billboardFallback == null) billboardFallback = new ArrayList<>();
-					billboardFallback.add(lodEntity);
+					billboardFallback.add(new BillboardFallback(
+						lodEntity.blockX() + 0.5, lodEntity.blockY(), lodEntity.blockZ() + 0.5, entityType));
 					continue;
 				}
 				entityCache.put(lodEntity.entityId(), entity);
 			}
 
-			// Update position and rotation
+			// Update position and rotation from LOD data
 			double posX = lodEntity.blockX() + 0.5;
 			double posY = lodEntity.blockY();
 			double posZ = lodEntity.blockZ() + 0.5;
@@ -203,38 +273,49 @@ public class LODEntityRenderer {
 				le.yHeadRotO = headYaw;
 			}
 
-			double rx = posX - cameraPos.x;
-			double ry = posY - cameraPos.y;
-			double rz = posZ - cameraPos.z;
-
-			// Save poseStack state so we can restore it if submit leaks pushPose calls
-			var savedPose = poseStack.last();
-			try {
-				EntityRenderState renderState = dispatcher.extractEntity(entity, 0.0f);
-				// LOD entities are in chunks not loaded on the client, so light data
-				// is unavailable. Use full sky brightness as a reasonable approximation.
-				renderState.lightCoords = LightCoordsUtil.FULL_SKY;
-				poseStack.pushPose();
-				dispatcher.submit(renderState, cameraState, rx, ry, rz, poseStack, submitCollector);
-				poseStack.popPose();
+			if (submitEntityModel(dispatcher, cameraState, entity, posX, posY, posZ,
+					cameraPos, poseStack, submitCollector)) {
 				modelCount++;
-
 				if (config.debugLogging && debugLogCount++ < 3) {
-					LOGGER.info("[LODEntity] Rendered model: type={} pos=({},{},{}) cached={}",
-						lodEntity.entityType(), (int) posX, (int) posY, (int) posZ, cached);
+					LOGGER.info("[LODEntity] Rendered custom model: type={} pos=({},{},{}) cached={}",
+						entityType, (int) posX, (int) posY, (int) posZ, cached);
 				}
-			} catch (Exception e) {
-				// Restore poseStack: pop leaked entries from dispatcher/renderer internals
-				while (poseStack.last() != savedPose) {
-					poseStack.popPose();
-				}
-				LOGGER.warn("[LODEntity] Failed to render model for {}, falling back to billboard: {}",
-					lodEntity.entityType(), e.getMessage());
+			} else {
 				entityCache.remove(lodEntity.entityId());
-				failedEntityTypes.add(lodEntity.entityType());
+				failedEntityTypes.add(entityType);
 				failedCount++;
 				if (billboardFallback == null) billboardFallback = new ArrayList<>();
-				billboardFallback.add(lodEntity);
+				billboardFallback.add(new BillboardFallback(posX, posY, posZ, entityType));
+			}
+		}
+
+		// ---- Native-mode entities from ClientLevel ----
+		// These are real Entity instances with full data (sub-block position,
+		// smooth interpolation, equipment, metadata). Render them directly.
+		for (Entity entity : nativeFarEntities) {
+			Identifier entityType = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
+
+			if (failedEntityTypes.contains(entityType)) {
+				failedCount++;
+				if (billboardFallback == null) billboardFallback = new ArrayList<>();
+				billboardFallback.add(new BillboardFallback(
+					entity.getX(), entity.getY(), entity.getZ(), entityType));
+				continue;
+			}
+
+			if (submitEntityModel(dispatcher, cameraState, entity, entity.getX(), entity.getY(), entity.getZ(),
+					cameraPos, poseStack, submitCollector)) {
+				modelCount++;
+				if (config.debugLogging && debugLogCount++ < 3) {
+					LOGGER.info("[LODEntity] Rendered native model: type={} pos=({},{},{})",
+						entityType, (int) entity.getX(), (int) entity.getY(), (int) entity.getZ());
+				}
+			} else {
+				failedEntityTypes.add(entityType);
+				failedCount++;
+				if (billboardFallback == null) billboardFallback = new ArrayList<>();
+				billboardFallback.add(new BillboardFallback(
+					entity.getX(), entity.getY(), entity.getZ(), entityType));
 			}
 		}
 
@@ -242,7 +323,14 @@ public class LODEntityRenderer {
 		int billboardCount = 0;
 		if (billboardFallback != null) {
 			billboardCount = billboardFallback.size();
-			renderBillboards(poseStack, bufferSource, cameraPos, billboardFallback);
+			VertexConsumer consumer = bufferSource.getBuffer(DEBUG_QUADS_TYPE);
+			for (BillboardFallback fb : billboardFallback) {
+				float[] color = getEntityColor(fb.entityType);
+				float halfWidth = 0.3f;
+				float height = isPlayerType(fb.entityType) ? 1.8f : 1.0f;
+				renderBillboardQuad(consumer, poseStack, cameraPos,
+					fb.posX, fb.posY, fb.posZ, color, halfWidth, height);
+			}
 		}
 
 		if (config.debugLogging) {
@@ -250,6 +338,38 @@ public class LODEntityRenderer {
 				modelCount, billboardCount, skippedCount, failedCount);
 		}
 	}
+
+	/**
+	 * Submit an entity model for rendering with FULL_SKY lighting.
+	 * Returns true on success, false on failure (caller should billboard-fallback).
+	 */
+	private boolean submitEntityModel(EntityRenderDispatcher dispatcher, CameraRenderState cameraState,
+									   Entity entity, double posX, double posY, double posZ,
+									   Vec3 cameraPos, PoseStack poseStack,
+									   net.minecraft.client.renderer.SubmitNodeCollector submitCollector) {
+		double rx = posX - cameraPos.x;
+		double ry = posY - cameraPos.y;
+		double rz = posZ - cameraPos.z;
+
+		var savedPose = poseStack.last();
+		try {
+			EntityRenderState renderState = dispatcher.extractEntity(entity, 0.0f);
+			renderState.lightCoords = LightCoordsUtil.FULL_SKY;
+			poseStack.pushPose();
+			dispatcher.submit(renderState, cameraState, rx, ry, rz, poseStack, submitCollector);
+			poseStack.popPose();
+			return true;
+		} catch (Exception e) {
+			while (poseStack.last() != savedPose) {
+				poseStack.popPose();
+			}
+			LOGGER.warn("[LODEntity] Failed to render model for {}: {}",
+				BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()), e.getMessage());
+			return false;
+		}
+	}
+
+	// ---- Entity instance creation (custom mode only) ------------------------
 
 	private Entity createEntityInstance(ClientLevel level, LODEntityManager.LODEntity lodEntity) {
 		if (isPlayerType(lodEntity.entityType())) {
@@ -288,10 +408,18 @@ public class LODEntityRenderer {
 		}
 	}
 
-	private boolean isVanillaTracked(int entityId) {
+	// ---- Utility -------------------------------------------------------------
+
+	/**
+	 * Check if an entity (by ID) is in a loaded chunk on the client.
+	 * Used for custom-mode entities whose position comes from LODEntityManager.
+	 */
+	private boolean isInLoadedChunkById(int entityId) {
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.level == null) return false;
-		return mc.level.getEntity(entityId) != null;
+		Entity entity = mc.level.getEntity(entityId);
+		if (entity == null) return false;
+		return isInLoadedChunk(mc.level, entity);
 	}
 
 	private static boolean isPlayerType(Identifier type) {
@@ -327,4 +455,6 @@ public class LODEntityRenderer {
 
 		return new float[]{0.4f, 0.6f, 1.0f}; // Blue for other
 	}
+
+	private record BillboardFallback(double posX, double posY, double posZ, Identifier entityType) {}
 }
