@@ -71,6 +71,9 @@ public class LODEntityRenderer {
 	private long failedTypesClearTimeMs = System.currentTimeMillis();
 	private static final long FAILED_TYPES_RETRY_MS = 60_000;
 
+	// Track game tick to ensure we tick native entities exactly once per game tick
+	private long lastTickedGameTime = -1;
+
 	public LODEntityRenderer(LODEntityManager manager, VoxyServerClientConfig config) {
 		this.manager = manager;
 		this.config = config;
@@ -86,6 +89,22 @@ public class LODEntityRenderer {
 		// In native transport mode the server adds them via vanilla tracking packets;
 		// in custom mode this list will be empty.
 		List<Entity> nativeFarEntities = collectNativeFarEntities(mc, level);
+
+		// Tick native far entities once per game tick. Vanilla's ClientLevel
+		// doesn't tick entities in unloaded chunks, so without this their
+		// interpolation, rotation, and animations would freeze. By calling
+		// tick() ourselves, vanilla's own code handles everything.
+		long gameTime = level.getGameTime();
+		if (gameTime != lastTickedGameTime && !nativeFarEntities.isEmpty()) {
+			lastTickedGameTime = gameTime;
+			for (Entity entity : nativeFarEntities) {
+				try {
+					entity.tick();
+				} catch (Exception e) {
+					// Entity tick may fail without loaded chunk data -- safe to skip
+				}
+			}
+		}
 
 		if (manager.size() == 0 && nativeFarEntities.isEmpty()) {
 			DEBUG.flush();

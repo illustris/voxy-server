@@ -9,8 +9,7 @@
 		"TrackedEntityAccessor"
 	],
 	"client": [
-		"client.DebugScreenEntriesAccessor",
-		"client.EntityLerpMixin"
+		"client.DebugScreenEntriesAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1
