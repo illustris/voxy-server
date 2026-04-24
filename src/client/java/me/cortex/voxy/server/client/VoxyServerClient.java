@@ -1,12 +1,20 @@
 package me.cortex.voxy.server.client;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
+//? if HAS_DEBUG_SCREEN {
 import me.cortex.voxy.server.mixin.client.DebugScreenEntriesAccessor;
+//?}
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+//? if HAS_RENDER_PIPELINES {
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+//?}
 import net.minecraft.network.chat.Component;
+//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal;
@@ -19,13 +27,17 @@ public class VoxyServerClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		ClientSyncHandler.register();
 
+		//? if HAS_DEBUG_SCREEN {
 		// Register voxy bandwidth stats in the F3 debug screen
 		DebugScreenEntriesAccessor.invokeRegister(
-			Identifier.parse("voxy-server:bandwidth"),
+			/*$ rl_parse */Identifier.parse("voxy-server:bandwidth"),
 			new VoxyBandwidthDebugEntry()
 		);
+		//?}
 
 		clientConfig = VoxyServerClientConfig.load();
+
+		//? if HAS_RENDER_PIPELINES {
 		LODEntityRenderer entityRenderer = new LODEntityRenderer(
 			ClientSyncHandler.getLODEntityManager(), clientConfig
 		);
@@ -35,6 +47,7 @@ public class VoxyServerClient implements ClientModInitializer {
 		// solid render types (entityCutoutNoCull used by most mobs) would never
 		// be processed because the solid pass already ran.
 		LevelRenderEvents.COLLECT_SUBMITS.register(entityRenderer::render);
+		//?}
 
 		registerCommands();
 	}

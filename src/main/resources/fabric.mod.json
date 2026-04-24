@@ -17,11 +17,12 @@
 		]
 	},
 	"mixins": [
-		"voxy-server.mixins.json"
+		${mixin_list}
 	],
 	"depends": {
 		"fabricloader": ">=${loader_version}",
-		"minecraft": "~${minecraft_version}",
+		"minecraft": "${mc_dep}",
+		"java": ">=${java_version}",
 		"fabric-api": "*",
 		"voxy": "*"
 	}

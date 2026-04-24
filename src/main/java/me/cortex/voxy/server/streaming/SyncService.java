@@ -15,7 +15,11 @@ import me.cortex.voxy.server.network.*;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -44,7 +48,7 @@ public class SyncService {
 	private int tickCounter = 0;
 
 	// Debounce: sectionKey -> (dimension, tick when last dirtied)
-	private record PendingDirty(Identifier dimension, long lastDirtyTick) {}
+	private record PendingDirty(/*$ rl_type */Identifier dimension, long lastDirtyTick) {}
 	private final ConcurrentHashMap<Long, PendingDirty> pendingDirty = new ConcurrentHashMap<>();
 	private volatile long currentTick = 0;
 
@@ -69,6 +73,7 @@ public class SyncService {
 			}
 		});
 
+		//? if HAS_NEW_NETWORKING {
 		ServerPlayNetworking.registerGlobalReceiver(MerkleReadyPayload.TYPE, (payload, context) -> {
 			ServerPlayer player = context.player();
 			MinecraftServer server = context.server();
@@ -82,6 +87,19 @@ public class SyncService {
 				player.getName().getString(), payload.regionKeys().length);
 			streamWorker.execute(() -> onClientL1Hashes(player, payload, context.server()));
 		});
+		//?} else {
+		/*ServerPlayNetworking.registerGlobalReceiver(MerkleReadyPayload.TYPE, (packet, player, sender) -> {
+			MinecraftServer server = player.getServer();
+			VoxyServerMod.LOGGER.info("[Sync] Received MerkleReadyPayload from {}", player.getName().getString());
+			server.execute(() -> onPlayerReady(player, server));
+		});
+
+		ServerPlayNetworking.registerGlobalReceiver(MerkleClientL1Payload.TYPE, (packet, player, sender) -> {
+			VoxyServerMod.debug("[Sync] Received MerkleClientL1Payload from {} with {} entries",
+				player.getName().getString(), packet.regionKeys().length);
+			streamWorker.execute(() -> onClientL1Hashes(player, packet, player.getServer()));
+		});
+		*///?}
 
 		VoxyServerMod.LOGGER.info("[Sync] Networking handlers registered");
 	}
@@ -90,7 +108,7 @@ public class SyncService {
 		PlayerSyncSession session = new PlayerSyncSession(player);
 		sessions.put(player.getUUID(), session);
 
-		Identifier dimension = player.level().dimension().identifier();
+		/*$ rl_type */Identifier dimension = player.level().dimension()./*$ rl_method */identifier();
 		session.setCurrentDimension(dimension);
 
 		ServerPlayNetworking.send(player, new MerkleSettingsPayload(
@@ -206,7 +224,7 @@ public class SyncService {
 	 * the same section dozens of times during initial chunk loading (each neighboring
 	 * chunk partially fills the same WorldSection).
 	 */
-	private void onSectionDirty(Identifier dimension, long sectionKey) {
+	private void onSectionDirty(/*$ rl_type */Identifier dimension, long sectionKey) {
 		pendingDirty.put(sectionKey, new PendingDirty(dimension, currentTick));
 	}
 
@@ -236,13 +254,13 @@ public class SyncService {
 		streamWorker.execute(() -> {
 			for (int idx = 0; idx < ready.size(); idx++) {
 				long sectionKey = ready.get(idx);
-				Identifier dimension = toProcess.get(idx).dimension();
+				/*$ rl_type */Identifier dimension = toProcess.get(idx).dimension();
 				processDirtySection(dimension, sectionKey);
 			}
 		});
 	}
 
-	private void processDirtySection(Identifier dimension, long sectionKey) {
+	private void processDirtySection(/*$ rl_type */Identifier dimension, long sectionKey) {
 		try {
 			WorldEngine world = engine.getWorldEngineForDimension(dimension);
 			if (world == null) return;
@@ -317,7 +335,7 @@ public class SyncService {
 					VoxyServerMod.LOGGER.info("[Sync] Player {} moved significantly, rebuilding tree at ({},{})",
 						player.getName().getString(), sectionX, sectionZ);
 
-					Identifier dimension = session.getCurrentDimension();
+					/*$ rl_type */Identifier dimension = session.getCurrentDimension();
 					streamWorker.execute(() -> {
 						try {
 							session.buildTree(engine.getSectionHashStore(), sectionX, sectionZ, config.lodStreamRadius);
@@ -360,7 +378,7 @@ public class SyncService {
 					long[] batch = session.pollBatch(config.sectionsPerPacket);
 					if (batch == null) return;
 
-					Identifier dimension = session.getCurrentDimension();
+					/*$ rl_type */Identifier dimension = session.getCurrentDimension();
 					ServerLevel level = findLevel(server, dimension);
 					if (level == null) return;
 
@@ -397,9 +415,13 @@ public class SyncService {
 						sectionPayloads.size(), player.getName().getString(), skipped);
 
 					LODBulkPayload bulk = new LODBulkPayload(dimension, sectionPayloads);
+					//? if HAS_NEW_NETWORKING {
 					PreSerializedLodPayload preserialized = PreSerializedLodPayload.fromBulk(
 						bulk, server.registryAccess()
 					);
+					//?} else {
+					/*PreSerializedLodPayload preserialized = PreSerializedLodPayload.fromBulk(bulk);
+					*///?}
 
 					// Compute affected L1 column hashes to send alongside section data.
 					// The client can't compute these itself (different Mapper IDs),
@@ -451,11 +473,11 @@ public class SyncService {
 		if (session == null) return;
 
 		VoxyServerMod.LOGGER.info("[Sync] Player {} changed dimension to {}",
-			player.getName().getString(), newLevel.dimension().identifier());
+			player.getName().getString(), newLevel.dimension()./*$ rl_method */identifier());
 
 		ServerPlayNetworking.send(player, LODClearPayload.clearAll());
 		session.reset();
-		session.setCurrentDimension(newLevel.dimension().identifier());
+		session.setCurrentDimension(newLevel.dimension()./*$ rl_method */identifier());
 		session.setState(PlayerSyncSession.State.AWAITING_READY);
 	}
 
@@ -470,9 +492,9 @@ public class SyncService {
 		sessions.clear();
 	}
 
-	private static ServerLevel findLevel(MinecraftServer server, Identifier dimension) {
+	private static ServerLevel findLevel(MinecraftServer server, /*$ rl_type */Identifier dimension) {
 		for (ServerLevel level : server.getAllLevels()) {
-			if (level.dimension().identifier().equals(dimension)) {
+			if (level.dimension()./*$ rl_method */identifier().equals(dimension)) {
 				return level;
 			}
 		}

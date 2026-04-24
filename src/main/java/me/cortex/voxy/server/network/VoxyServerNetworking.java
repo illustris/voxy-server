@@ -1,10 +1,13 @@
 package me.cortex.voxy.server.network;
 
+//? if HAS_NEW_NETWORKING {
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+//?}
 
 public class VoxyServerNetworking {
 
 	public static void register() {
+		//? if HAS_NEW_NETWORKING {
 		// S2C payloads
 		PayloadTypeRegistry.clientboundPlay().register(LODSectionPayload.TYPE, LODSectionPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(LODBulkPayload.TYPE, LODBulkPayload.CODEC);
@@ -19,5 +22,8 @@ public class VoxyServerNetworking {
 		// C2S payloads
 		PayloadTypeRegistry.serverboundPlay().register(MerkleReadyPayload.TYPE, MerkleReadyPayload.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(MerkleClientL1Payload.TYPE, MerkleClientL1Payload.CODEC);
+		//?}
+		// On 1.20.1 (FabricPacket), no explicit registration is needed.
+		// The PacketType.create() calls in each payload class handle it.
 	}
 }

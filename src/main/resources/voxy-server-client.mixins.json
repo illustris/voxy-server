@@ -2,11 +2,8 @@
 	"required": true,
 	"package": "me.cortex.voxy.server.mixin",
 	"compatibilityLevel": "JAVA_${java_version}",
-	"mixins": [
-		"LevelChunkMixin",
-		"ChunkMapTrackedEntityMixin",
-		"ChunkMapAccessor",
-		"TrackedEntityAccessor"
+	"client": [
+		"client.DebugScreenEntriesAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1

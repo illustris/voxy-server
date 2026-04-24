@@ -3,7 +3,11 @@ package me.cortex.voxy.server.client;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import me.cortex.voxy.server.network.LODEntityRemovePayload;
 import me.cortex.voxy.server.network.LODEntityUpdatePayload;
+//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +24,7 @@ public class LODEntityManager {
 
 	public record LODEntity(
 		int entityId,
-		Identifier entityType,
+		/*$ rl_type */Identifier entityType,
 		int blockX,
 		int blockY,
 		int blockZ,

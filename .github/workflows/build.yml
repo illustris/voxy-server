@@ -42,16 +42,16 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/libs"
           cp build/libs/voxy-*.jar "$GITHUB_WORKSPACE/libs/voxy.jar"
 
-      - name: Build mod
-        run: ./gradlew build
+      - name: Build all versions
+        run: ./gradlew chiseledBuildAndCollect
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: voxy-server
           path: |
-            build/libs/voxy-server-*.jar
-            !build/libs/voxy-server-*-sources.jar
+            build/libs/*/voxy-server-*.jar
+            !build/libs/*/voxy-server-*-sources.jar
 
       - name: Upload Voxy dependency
         uses: actions/upload-artifact@v4
@@ -70,13 +70,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: gradle.properties
+          sparse-checkout: |
+            versions/26.1.1/gradle.properties
           sparse-checkout-cone-mode: false
 
       - name: Read Fabric API version
         id: versions
         run: |
-          fabric_version=$(grep '^fabric_version=' gradle.properties | cut -d= -f2)
+          fabric_version=$(grep '^deps.fabric_api=' versions/26.1.1/gradle.properties | cut -d= -f2)
           echo "fabric_version=$fabric_version" >> "$GITHUB_OUTPUT"
 
       - name: Download voxy-server artifact
@@ -129,8 +130,8 @@ jobs:
 
           SCP_OPTS="-o StrictHostKeyChecking=no -i ~/.ssh/deploy_key -P $SSH_PORT"
 
-          # Resolve the mod jar (exclude -sources.jar)
-          MOD_JAR=$(ls artifacts/voxy-server-*.jar | grep -v sources | head -1)
+          # Deploy the 26.1.1 jar to staging (exclude -sources.jar)
+          MOD_JAR=$(find artifacts/ -name 'voxy-server-26.1.1-*.jar' ! -name '*-sources.jar' | head -1)
 
           # Stop server gracefully
           ssh $SSH_OPTS "$SERVER" "sudo /run/current-system/sw/bin/systemctl stop voxy-server" || true
@@ -154,13 +155,20 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: voxy-server
+          path: release-jars/
+
+      - name: Flatten jars for release
+        run: |
+          mkdir -p release/
+          find release-jars/ -name 'voxy-server-*.jar' ! -name '*-sources.jar' -exec cp {} release/ \;
+          ls -la release/
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: voxy-server-*.jar
+          files: release/voxy-server-*.jar
           generate_release_notes: true

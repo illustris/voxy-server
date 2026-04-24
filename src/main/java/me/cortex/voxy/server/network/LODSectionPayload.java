@@ -1,12 +1,23 @@
 package me.cortex.voxy.server.network;
 
+//? if HAS_NEW_NETWORKING {
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+//?} else {
+/*import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.network.FriendlyByteBuf;
+*///?}
+//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 
+//? if HAS_NEW_NETWORKING {
 public record LODSectionPayload(
-	Identifier dimension,
+	/*$ rl_type */Identifier dimension,
 	long sectionKey,
 	int[] lutBlockStateIds,
 	int[] lutBiomeIds,
@@ -15,13 +26,13 @@ public record LODSectionPayload(
 ) implements CustomPacketPayload {
 
 	public static final Type<LODSectionPayload> TYPE =
-		new Type<>(Identifier.parse("voxy-server:lod_section"));
+		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:lod_section"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, LODSectionPayload> CODEC =
 		StreamCodec.of(LODSectionPayload::write, LODSectionPayload::read);
 
 	private static void write(RegistryFriendlyByteBuf buf, LODSectionPayload payload) {
-		buf.writeIdentifier(payload.dimension);
+		buf./*$ write_rl */writeIdentifier(payload.dimension);
 		buf.writeLong(payload.sectionKey);
 
 		int lutLen = payload.lutBlockStateIds.length;
@@ -49,7 +60,7 @@ public record LODSectionPayload(
 	}
 
 	private static LODSectionPayload read(RegistryFriendlyByteBuf buf) {
-		Identifier dimension = buf.readIdentifier();
+		/*$ rl_type */Identifier dimension = buf./*$ read_rl */readIdentifier();
 		long sectionKey = buf.readLong();
 
 		int lutLen = buf.readVarInt();
@@ -83,3 +94,90 @@ public record LODSectionPayload(
 		return TYPE;
 	}
 }
+//?} else {
+/*public record LODSectionPayload(
+	ResourceLocation dimension,
+	long sectionKey,
+	int[] lutBlockStateIds,
+	int[] lutBiomeIds,
+	byte[] lutLight,
+	short[] indexArray
+) implements FabricPacket {
+
+	public static final PacketType<LODSectionPayload> TYPE =
+		PacketType.create(new ResourceLocation("voxy-server", "lod_section"), LODSectionPayload::new);
+
+	public LODSectionPayload(FriendlyByteBuf buf) {
+		this(readFrom(buf));
+	}
+
+	private LODSectionPayload(LODSectionPayload other) {
+		this(other.dimension, other.sectionKey, other.lutBlockStateIds,
+			other.lutBiomeIds, other.lutLight, other.indexArray);
+	}
+
+	private static LODSectionPayload readFrom(FriendlyByteBuf buf) {
+		ResourceLocation dimension = buf.readResourceLocation();
+		long sectionKey = buf.readLong();
+
+		int lutLen = buf.readVarInt();
+		int[] blockStateIds = new int[lutLen];
+		int[] biomeIds = new int[lutLen];
+		byte[] light = new byte[lutLen];
+		for (int i = 0; i < lutLen; i++) {
+			blockStateIds[i] = buf.readVarInt();
+			biomeIds[i] = buf.readVarInt();
+			light[i] = buf.readByte();
+		}
+
+		int indexLen = buf.readVarInt();
+		int bitsPerEntry = buf.readByte() & 0xFF;
+		int entriesPerLong = 64 / bitsPerEntry;
+		long mask = (1L << bitsPerEntry) - 1;
+		short[] indexArray = new short[indexLen];
+		int idx = 0;
+		while (idx < indexLen) {
+			long packed = buf.readLong();
+			for (int ei = 0; ei < entriesPerLong && idx < indexLen; ei++, idx++) {
+				indexArray[idx] = (short) ((packed >> (ei * bitsPerEntry)) & mask);
+			}
+		}
+
+		return new LODSectionPayload(dimension, sectionKey, blockStateIds, biomeIds, light, indexArray);
+	}
+
+	@Override
+	public void write(FriendlyByteBuf buf) {
+		buf.writeResourceLocation(dimension);
+		buf.writeLong(sectionKey);
+
+		int lutLen = lutBlockStateIds.length;
+		buf.writeVarInt(lutLen);
+		for (int i = 0; i < lutLen; i++) {
+			buf.writeVarInt(lutBlockStateIds[i]);
+			buf.writeVarInt(lutBiomeIds[i]);
+			buf.writeByte(lutLight[i]);
+		}
+
+		int bitsPerEntry = Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(lutLen - 1, 0)));
+		int entriesPerLong = 64 / bitsPerEntry;
+		int longCount = (indexArray.length + entriesPerLong - 1) / entriesPerLong;
+
+		buf.writeVarInt(indexArray.length);
+		buf.writeByte(bitsPerEntry);
+		for (int li = 0; li < longCount; li++) {
+			long packed = 0L;
+			int base = li * entriesPerLong;
+			for (int ei = 0; ei < entriesPerLong && base + ei < indexArray.length; ei++) {
+				packed |= ((long) (indexArray[base + ei] & 0xFFFF)) << (ei * bitsPerEntry);
+			}
+			buf.writeLong(packed);
+		}
+	}
+
+	@Override
+	public PacketType<?> getType() {
+		return TYPE;
+	}
+}
+*///?}

@@ -1,5 +1,6 @@
 package me.cortex.voxy.server.client;
 
+//? if HAS_RENDER_PIPELINES {
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
@@ -25,6 +26,9 @@ import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,9 +51,14 @@ import java.util.Set;
  *
  * Entity types that fail to create or render as models automatically fall back
  * to billboard rendering so they remain visible.
+ *
+ * On MC versions before 26.1, the render pipeline APIs are not available and
+ * the render method is a no-op.
  */
 public class LODEntityRenderer {
 	private static final Logger LOGGER = LoggerFactory.getLogger("voxy-server-client");
+
+	//? if HAS_RENDER_PIPELINES {
 	private static final DebouncedLogger DEBUG = new DebouncedLogger(LOGGER);
 	private static final Identifier PLAYER_TYPE = Identifier.parse("minecraft:player");
 
@@ -495,4 +504,15 @@ public class LODEntityRenderer {
 	}
 
 	private record BillboardFallback(double posX, double posY, double posZ, Identifier entityType) {}
+
+	//?} else {
+
+	/*
+	// Render pipeline APIs are not available before MC 26.1.
+	// The renderer is a no-op stub -- entity data management still works
+	// via LODEntityManager, but nothing is drawn.
+
+	public LODEntityRenderer(LODEntityManager manager, VoxyServerClientConfig config) {
+	}
+	*///?}
 }

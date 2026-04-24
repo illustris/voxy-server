@@ -9,7 +9,11 @@ import me.cortex.voxy.commonImpl.VoxyInstance;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
 import me.cortex.voxy.server.VoxyServerMod;
 import me.cortex.voxy.server.merkle.SectionHashStore;
+//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;*/
+//?}
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
 
@@ -23,12 +27,12 @@ import java.util.concurrent.TimeUnit;
 public class ServerLodEngine extends VoxyInstance {
 	@FunctionalInterface
 	public interface DirtySectionListener {
-		void onSectionDirty(Identifier dimension, long sectionKey);
+		void onSectionDirty(/*$ rl_type */Identifier dimension, long sectionKey);
 	}
 
 	private final Path basePath;
 	private final SectionSerializationStorage.Config storageConfig;
-	private final ConcurrentHashMap<WorldIdentifier, Identifier> dimensionsByWorld = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<WorldIdentifier, /*$ rl_type */Identifier> dimensionsByWorld = new ConcurrentHashMap<>();
 	private final ConcurrentHashMap<WorldIdentifier, StoredSectionPresenceIndex> presenceIndexes = new ConcurrentHashMap<>();
 	private final ExecutorService presenceIndexExecutor = Executors.newSingleThreadExecutor(r -> {
 		Thread t = new Thread(r, "VoxyServer Presence Index");
@@ -75,10 +79,10 @@ public class ServerLodEngine extends VoxyInstance {
 		if (worldId == null) {
 			return null;
 		}
-		return this.getOrCreate(worldId, level.dimension().identifier());
+		return this.getOrCreate(worldId, level.dimension()./*$ rl_method */identifier());
 	}
 
-	public WorldEngine getOrCreate(WorldIdentifier identifier, Identifier dimension) {
+	public WorldEngine getOrCreate(WorldIdentifier identifier, /*$ rl_type */Identifier dimension) {
 		if (identifier == null || !this.isRunning()) {
 			return null;
 		}
@@ -151,7 +155,7 @@ public class ServerLodEngine extends VoxyInstance {
 		}
 	}
 
-	public Identifier getDimensionForWorld(WorldIdentifier worldId) {
+	public /*$ rl_type */Identifier getDimensionForWorld(WorldIdentifier worldId) {
 		return this.dimensionsByWorld.get(worldId);
 	}
 
@@ -159,7 +163,7 @@ public class ServerLodEngine extends VoxyInstance {
 	 * Get a WorldEngine by dimension Identifier.
 	 * Looks up the WorldIdentifier from the dimension mapping and returns the engine.
 	 */
-	public WorldEngine getWorldEngineForDimension(Identifier dimension) {
+	public WorldEngine getWorldEngineForDimension(/*$ rl_type */Identifier dimension) {
 		for (var entry : this.dimensionsByWorld.entrySet()) {
 			if (entry.getValue().equals(dimension)) {
 				return this.getNullable(entry.getKey());
@@ -196,7 +200,7 @@ public class ServerLodEngine extends VoxyInstance {
 			return;
 		}
 
-		Identifier dimension = this.dimensionsByWorld.get(identifier);
+		/*$ rl_type */Identifier dimension = this.dimensionsByWorld.get(identifier);
 		DirtySectionListener listener = this.dirtySectionListener;
 		if (dimension == null || listener == null) {
 			return;

@@ -12,7 +12,11 @@ import me.cortex.voxy.server.network.LODEntityRemovePayload;
 import me.cortex.voxy.server.network.LODEntityUpdatePayload;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.BuiltInRegistries;
+//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.server.level.ServerLevel;
@@ -125,7 +129,7 @@ public class EntitySyncService {
 
 			if (distSq <= vanillaRadiusSq) continue;
 
-			Identifier entityType = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
+			/*$ rl_type */Identifier entityType = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
 			boolean isPlayer = entity instanceof Player;
 			float headYaw = entity instanceof LivingEntity le ? le.getYHeadRot() : entity.getYRot();
 			candidates.add(new CandidateEntity(
@@ -234,7 +238,7 @@ public class EntitySyncService {
 
 		// Send updates
 		if (!updateIds.isEmpty()) {
-			sendUpdates(observer, level.dimension().identifier(), current, updateIds);
+			sendUpdates(observer, level.dimension()./*$ rl_method */identifier(), current, updateIds);
 		}
 
 		// Send removals
@@ -247,12 +251,12 @@ public class EntitySyncService {
 		tracker.setLastSent(current);
 	}
 
-	private void sendUpdates(ServerPlayer observer, Identifier dimension,
+	private void sendUpdates(ServerPlayer observer, /*$ rl_type */Identifier dimension,
 							  Int2ObjectOpenHashMap<PlayerEntityTracker.EntitySnapshot> snapshot,
 							  List<Integer> ids) {
 		int count = ids.size();
 		int[] entityIds = new int[count];
-		Identifier[] entityTypes = new Identifier[count];
+		/*$ rl_type */Identifier[] entityTypes = new /*$ rl_type */Identifier[count];
 		int[] blockX = new int[count];
 		int[] blockY = new int[count];
 		int[] blockZ = new int[count];
@@ -353,7 +357,7 @@ public class EntitySyncService {
 	}
 
 	private record CandidateEntity(
-		int entityId, Identifier entityType,
+		int entityId, /*$ rl_type */Identifier entityType,
 		int blockX, int blockY, int blockZ,
 		byte yaw, byte pitch, byte headYaw,
 		UUID uuid, boolean isPlayer, double distSq

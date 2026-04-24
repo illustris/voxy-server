@@ -18,7 +18,9 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+//? if HAS_PERMISSIONS {
 import net.minecraft.server.permissions.Permissions;
+//?}
 import net.minecraft.world.level.storage.LevelResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -144,7 +146,12 @@ public class VoxyServerMod implements ModInitializer {
 	private void registerCommands() {
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			dispatcher.register(Commands.literal("voxy")
+				//? if HAS_PERMISSIONS {
 				.requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_ADMIN))
+				//?} else {
+				/*.requires(source -> source.hasPermission(4))
+				*///?}
+
 				.then(Commands.literal("entity")
 					.then(Commands.literal("interval")
 						.then(Commands.argument("ticks", IntegerArgumentType.integer(1, 200))

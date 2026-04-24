@@ -6,7 +6,11 @@ import me.cortex.voxy.common.world.WorldSection;
 import me.cortex.voxy.common.world.other.Mapper;
 import me.cortex.voxy.server.merkle.MerkleHashUtil;
 import me.cortex.voxy.server.network.LODSectionPayload;
+//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 import net.minecraft.world.level.block.Block;
 
 /**
@@ -19,7 +23,7 @@ public class SectionSerializer {
 	 * Serialize a WorldSection into an LODSectionPayload.
 	 * The section must be acquired (loaded) before calling this.
 	 */
-	public static LODSectionPayload serialize(WorldSection section, Mapper mapper, Identifier dimension) {
+	public static LODSectionPayload serialize(WorldSection section, Mapper mapper, /*$ rl_type */Identifier dimension) {
 		long[] data = section._unsafeGetRawDataArray();
 
 		// Build LUT of unique entries

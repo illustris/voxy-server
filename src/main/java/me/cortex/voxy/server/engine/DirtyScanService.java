@@ -47,12 +47,12 @@ public class DirtyScanService {
 				if (chunk != null) {
 					if (changeInfo != null) {
 						VoxyServerMod.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {}, triggered by {} block change(s), last: ({},{},{}) {} -> {}",
-							pos.x(), pos.z(), level.dimension().identifier(),
+							pos.x(), pos.z(), level.dimension()./*$ rl_method */identifier(),
 							changeInfo.count(), changeInfo.x(), changeInfo.y(), changeInfo.z(),
 							changeInfo.oldState(), changeInfo.newState());
 					} else {
 						VoxyServerMod.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {} (trigger info unavailable, likely from previous session)",
-							pos.x(), pos.z(), level.dimension().identifier());
+							pos.x(), pos.z(), level.dimension()./*$ rl_method */identifier());
 					}
 					voxelizer.revoxelizeChunk(level, chunk);
 					found = true;

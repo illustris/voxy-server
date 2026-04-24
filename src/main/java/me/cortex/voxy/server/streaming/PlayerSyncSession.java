@@ -3,7 +3,11 @@ package me.cortex.voxy.server.streaming;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import me.cortex.voxy.server.merkle.PlayerMerkleTree;
 import me.cortex.voxy.server.merkle.SectionHashStore;
+//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
+//?} else {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.ArrayDeque;
@@ -27,7 +31,7 @@ public class PlayerSyncSession {
 	private final UUID playerId;
 	private final ServerPlayer player;
 	private volatile State state = State.AWAITING_READY;
-	private volatile Identifier currentDimension;
+	private volatile /*$ rl_type */Identifier currentDimension;
 	private volatile PlayerMerkleTree tree;
 
 	// Current position in section coordinates
@@ -61,11 +65,11 @@ public class PlayerSyncSession {
 		this.state = state;
 	}
 
-	public Identifier getCurrentDimension() {
+	public /*$ rl_type */Identifier getCurrentDimension() {
 		return currentDimension;
 	}
 
-	public void setCurrentDimension(Identifier dimension) {
+	public void setCurrentDimension(/*$ rl_type */Identifier dimension) {
 		this.currentDimension = dimension;
 	}
 

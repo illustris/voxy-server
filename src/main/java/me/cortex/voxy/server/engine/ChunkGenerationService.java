@@ -8,7 +8,11 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
+//? if !MC_1_20_1 {
 import net.minecraft.world.level.chunk.status.ChunkStatus;
+//?} else {
+/*import net.minecraft.world.level.chunk.ChunkStatus;
+*///?}
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;

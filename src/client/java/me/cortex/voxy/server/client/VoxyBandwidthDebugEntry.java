@@ -1,5 +1,6 @@
 package me.cortex.voxy.server.client;
 
+//? if HAS_DEBUG_SCREEN {
 import net.minecraft.client.gui.components.debug.DebugScreenDisplayer;
 import net.minecraft.client.gui.components.debug.DebugScreenEntry;
 import net.minecraft.world.level.Level;
@@ -20,3 +21,10 @@ public class VoxyBandwidthDebugEntry implements DebugScreenEntry {
 			kbps, sections, entities));
 	}
 }
+//?} else {
+/*
+// DebugScreenEntry does not exist before MC 1.21.11.
+// This class is intentionally empty for older versions.
+public class VoxyBandwidthDebugEntry {
+}
+*///?}

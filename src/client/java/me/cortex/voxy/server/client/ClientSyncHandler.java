@@ -54,6 +54,7 @@ public class ClientSyncHandler {
 			LOGGER.info("[ClientSync] Disconnected, preserving Merkle state for reconnection");
 		});
 
+		//? if HAS_NEW_NETWORKING {
 		// Handle server settings
 		ClientPlayNetworking.registerGlobalReceiver(MerkleSettingsPayload.TYPE, (payload, context) -> {
 			VoxyBandwidthTracker.recordBytes("merkle", 8);
@@ -110,6 +111,64 @@ public class ClientSyncHandler {
 			VoxyBandwidthTracker.recordBytes("entities", payload.entityIds().length * 5 + 4);
 			context.client().execute(() -> lodEntityManager.applyRemoval(payload));
 		});
+		//?} else {
+		/*// Handle server settings
+		ClientPlayNetworking.registerGlobalReceiver(MerkleSettingsPayload.TYPE, (packet, player, sender) -> {
+			VoxyBandwidthTracker.recordBytes("merkle", 8);
+			LOGGER.info("[ClientSync] Received settings: radius={} maxSections={}",
+				packet.maxRadius(), packet.maxSectionsPerTick());
+		});
+
+		// Handle L2 hashes from server - compare and respond with L1 for mismatches
+		ClientPlayNetworking.registerGlobalReceiver(MerkleL2HashesPayload.TYPE, (packet, player, sender) -> {
+			VoxyBandwidthTracker.recordBytes("merkle", packet.regionKeys().length * 16);
+			LOGGER.info("[ClientSync] Received {} L2 hashes from server", packet.regionKeys().length);
+			Minecraft.getInstance().execute(() -> handleL2Hashes(packet));
+		});
+
+		// Handle section data from server
+		ClientPlayNetworking.registerGlobalReceiver(PreSerializedLodPayload.TYPE, (packet, player, sender) -> {
+			VoxyBandwidthTracker.recordBytes("sections", packet.data().length);
+			Minecraft.getInstance().execute(() -> {
+				ClientLevel level = Minecraft.getInstance().level;
+				if (level == null) return;
+				LODBulkPayload bulk = packet.decodeBulk(level.registryAccess());
+				VoxyBandwidthTracker.recordSections(bulk.sections().size());
+				LOGGER.info("[ClientSync] Received {} sections from server", bulk.sections().size());
+				for (LODSectionPayload section : bulk.sections()) {
+					handleSection(section);
+				}
+			});
+		});
+
+		// Handle hash updates from server
+		ClientPlayNetworking.registerGlobalReceiver(MerkleHashUpdatePayload.TYPE, (packet, player, sender) -> {
+			VoxyBandwidthTracker.recordBytes("merkle", packet.columnKeys().length * 16);
+			Minecraft.getInstance().execute(() -> {
+				merkleState.updateL1Hashes(packet.columnKeys(), packet.columnHashes());
+			});
+		});
+
+		// Handle clear
+		ClientPlayNetworking.registerGlobalReceiver(LODClearPayload.TYPE, (packet, player, sender) -> {
+			Minecraft.getInstance().execute(() -> {
+				merkleState.clear();
+				lodEntityManager.clear();
+			});
+		});
+
+		// Handle LOD entity updates
+		ClientPlayNetworking.registerGlobalReceiver(LODEntityUpdatePayload.TYPE, (packet, player, sender) -> {
+			VoxyBandwidthTracker.recordBytes("entities", packet.count() * 37 + 16);
+			Minecraft.getInstance().execute(() -> lodEntityManager.applyUpdate(packet));
+		});
+
+		// Handle LOD entity removals
+		ClientPlayNetworking.registerGlobalReceiver(LODEntityRemovePayload.TYPE, (packet, player, sender) -> {
+			VoxyBandwidthTracker.recordBytes("entities", packet.entityIds().length * 5 + 4);
+			Minecraft.getInstance().execute(() -> lodEntityManager.applyRemoval(packet));
+		});
+		*///?}
 	}
 
 	private static void handleL2Hashes(MerkleL2HashesPayload payload) {

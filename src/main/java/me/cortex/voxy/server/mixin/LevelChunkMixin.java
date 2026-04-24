@@ -27,7 +27,11 @@ public abstract class LevelChunkMixin {
 			// During chunk generation, setBlockState fires for every placed block
 			// (ores, trees, features etc.) which would flood the timestamp store.
 			LevelChunk self = (LevelChunk) (Object) this;
+			//? if HAS_FULL_CHUNK_IS_OR_AFTER {
 			if (self.getFullStatus() != null && self.getFullStatus().isOrAfter(net.minecraft.server.level.FullChunkStatus.FULL)) {
+			//?} else {
+			/*if (self.getFullStatus() != null) {
+			*///?}
 				ChunkTimestampStore.onBlockChanged(serverLevel, pos,
 						cir.getReturnValue().toString(), state.toString());
 			}
