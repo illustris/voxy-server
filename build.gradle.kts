@@ -1,18 +1,16 @@
 plugins {
 	id("dev.kikugie.stonecutter")
-	id("net.fabricmc.fabric-loom")
+	id("net.fabricmc.fabric-loom-remap")
 	`maven-publish`
 }
 
 val mcVersion = stonecutter.current.version
 val javaTarget = property("mod.java_version").toString().toInt()
+val requiredJava = JavaVersion.toVersion(javaTarget)
 
 version = property("mod.version").toString()
 group = property("mod.group").toString()
-
-base {
-	archivesName.set("voxy-server-${mcVersion}")
-}
+base.archivesName = "voxy-server-${mcVersion}"
 
 loom {
 	splitEnvironmentSourceSets()
@@ -60,58 +58,58 @@ dependencies {
 	implementation("org.rocksdb:rocksdbjni:10.2.1")
 }
 
-processResources {
-	val mc = stonecutter.current.version
-	val hasDebugScreen = stonecutter.current.parsed >= "1.21.11"
-	val props = mapOf(
-		"version"           to project.version,
-		"minecraft_version" to property("deps.minecraft"),
-		"loader_version"    to property("deps.fabric_loader"),
-		"mc_dep"            to property("mod.mc_dep"),
-		"java_version"      to javaTarget,
-	)
-	inputs.properties(props)
-	filteringCharset = "UTF-8"
-	// Build the mixin list -- include client mixin config only when supported
-	val mixinList = buildList {
-		add("\"voxy-server.mixins.json\"")
-		if (hasDebugScreen) add("\"voxy-server-client.mixins.json\"")
-	}
-	val allProps = props + mapOf("mixin_list" to mixinList.joinToString(",\n\t\t"))
-
-	filesMatching("fabric.mod.json") { expand(allProps) }
-	filesMatching("voxy-server.mixins.json") { expand(props) }
-	filesMatching("voxy-server-client.mixins.json") { expand(props) }
-
-	// Exclude the client mixin config on versions that lack DebugScreenEntries
-	if (!hasDebugScreen) {
-		exclude("voxy-server-client.mixins.json")
-	}
-}
-
-tasks.withType<JavaCompile> {
-	options.encoding = "UTF-8"
-	options.release.set(javaTarget)
-	options.isDeprecation = true
-}
-
 java {
-	val javaVersion = JavaVersion.toVersion(javaTarget)
-	if (JavaVersion.current() < javaVersion) {
-		toolchain.languageVersion.set(JavaLanguageVersion.of(javaTarget))
-	}
 	withSourcesJar()
+	targetCompatibility = requiredJava
+	sourceCompatibility = requiredJava
 }
 
-tasks.named<Jar>("jar") {
-	from("LICENSE") {
-		rename { "${it}_voxy-server" }
+tasks {
+	withType<JavaCompile> {
+		options.encoding = "UTF-8"
+		options.release.set(javaTarget)
+		options.isDeprecation = true
 	}
-}
 
-// Collect built jars into build/libs/<mcversion>/
-tasks.register<Copy>("buildAndCollect") {
-	group = "build"
-	from(tasks.named("remapJar"))
-	into(rootProject.layout.buildDirectory.dir("libs/${mcVersion}"))
+	processResources {
+		val hasDebugScreen = stonecutter.current.parsed >= "1.21.11"
+		val props = mapOf(
+			"version"           to project.version,
+			"minecraft_version" to property("deps.minecraft"),
+			"loader_version"    to property("deps.fabric_loader"),
+			"mc_dep"            to property("mod.mc_dep"),
+			"java_version"      to javaTarget,
+		)
+		inputs.properties(props)
+		filteringCharset = "UTF-8"
+
+		// Build the mixin list -- include client mixin config only when supported
+		val mixinList = buildList {
+			add("\"voxy-server.mixins.json\"")
+			if (hasDebugScreen) add("\"voxy-server-client.mixins.json\"")
+		}
+		val allProps = props + mapOf("mixin_list" to mixinList.joinToString(",\n\t\t"))
+
+		filesMatching("fabric.mod.json") { expand(allProps) }
+		filesMatching("voxy-server.mixins.json") { expand(props) }
+		filesMatching("voxy-server-client.mixins.json") { expand(props) }
+
+		// Exclude the client mixin config on versions that lack DebugScreenEntries
+		if (!hasDebugScreen) {
+			exclude("voxy-server-client.mixins.json")
+		}
+	}
+
+	jar {
+		from("LICENSE") {
+			rename { "${it}_voxy-server" }
+		}
+	}
+
+	register<Copy>("buildAndCollect") {
+		group = "build"
+		from(remapJar.map { it.archiveFile })
+		into(rootProject.layout.buildDirectory.dir("libs/${mcVersion}"))
+		dependsOn("build")
+	}
 }
