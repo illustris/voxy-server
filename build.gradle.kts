@@ -34,10 +34,7 @@ val voxyJar = file("libs/voxy-${mcVersion}.jar").let {
 dependencies {
 	minecraft("com.mojang:minecraft:${property("deps.minecraft")}")
 
-	// MC 26.x ships deobfuscated; older versions need Mojang mappings
-	if (stonecutter.current.parsed < "26.1") {
-		mappings(loom.officialMojangMappings())
-	}
+	mappings(loom.officialMojangMappings())
 
 	implementation("net.fabricmc:fabric-loader:${property("deps.fabric_loader")}")
 	implementation("net.fabricmc.fabric-api:fabric-api:${property("deps.fabric_api")}")
