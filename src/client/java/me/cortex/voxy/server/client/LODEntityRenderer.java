@@ -94,14 +94,23 @@ public class LODEntityRenderer {
 		// doesn't tick entities in unloaded chunks, so without this their
 		// interpolation, rotation, and animations would freeze. By calling
 		// tick() ourselves, vanilla's own code handles everything.
+		//
+		// noPhysics is set during the tick to suppress gravity and collision.
+		// Without it, the entity falls through the missing ground every tick,
+		// interpolation snaps it back, and the movement detector sees constant
+		// motion -- causing a permanent run animation.
 		long gameTime = level.getGameTime();
 		if (gameTime != lastTickedGameTime && !nativeFarEntities.isEmpty()) {
 			lastTickedGameTime = gameTime;
 			for (Entity entity : nativeFarEntities) {
+				boolean wasNoPhysics = entity.noPhysics;
+				entity.noPhysics = true;
 				try {
 					entity.tick();
 				} catch (Exception e) {
 					// Entity tick may fail without loaded chunk data -- safe to skip
+				} finally {
+					entity.noPhysics = wasNoPhysics;
 				}
 			}
 		}
