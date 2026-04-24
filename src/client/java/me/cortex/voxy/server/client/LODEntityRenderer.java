@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import me.cortex.voxy.server.util.DebouncedLogger;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -49,6 +50,7 @@ import java.util.Set;
  */
 public class LODEntityRenderer {
 	private static final Logger LOGGER = LoggerFactory.getLogger("voxy-server-client");
+	private static final DebouncedLogger DEBUG = new DebouncedLogger(LOGGER);
 	private static final Identifier PLAYER_TYPE = Identifier.parse("minecraft:player");
 
 	private static final RenderType DEBUG_QUADS_TYPE = RenderType.create(
@@ -85,7 +87,10 @@ public class LODEntityRenderer {
 		// in custom mode this list will be empty.
 		List<Entity> nativeFarEntities = collectNativeFarEntities(mc, level);
 
-		if (manager.size() == 0 && nativeFarEntities.isEmpty()) return;
+		if (manager.size() == 0 && nativeFarEntities.isEmpty()) {
+			DEBUG.flush();
+			return;
+		}
 
 		Vec3 cameraPos = mc.gameRenderer.getMainCamera().position();
 		PoseStack poseStack = context.poseStack();
@@ -201,7 +206,7 @@ public class LODEntityRenderer {
 		long now = System.currentTimeMillis();
 		if (now - failedTypesClearTimeMs > FAILED_TYPES_RETRY_MS) {
 			if (config.debugLogging && !failedEntityTypes.isEmpty()) {
-				LOGGER.info("[LODEntity] Clearing {} failed entity types for retry", failedEntityTypes.size());
+				DEBUG.log("[LODEntity] Clearing {} failed entity types for retry", failedEntityTypes.size());
 			}
 			failedEntityTypes.clear();
 			failedTypesClearTimeMs = now;
@@ -214,7 +219,7 @@ public class LODEntityRenderer {
 
 		// Collect entities that need billboard fallback
 		List<BillboardFallback> billboardFallback = null;
-		int modelCount = 0, skippedCount = 0, failedCount = 0, debugLogCount = 0;
+		int modelCount = 0, skippedCount = 0, failedCount = 0;
 
 		// ---- Custom-mode entities from LODEntityManager ----
 		for (LODEntityManager.LODEntity lodEntity : manager.getEntities()) {
@@ -276,8 +281,8 @@ public class LODEntityRenderer {
 			if (submitEntityModel(dispatcher, cameraState, entity, posX, posY, posZ,
 					cameraPos, poseStack, submitCollector)) {
 				modelCount++;
-				if (config.debugLogging && debugLogCount++ < 3) {
-					LOGGER.info("[LODEntity] Rendered custom model: type={} pos=({},{},{}) cached={}",
+				if (config.debugLogging) {
+					DEBUG.log("[LODEntity] Rendered custom model: type={} pos=({},{},{}) cached={}",
 						entityType, (int) posX, (int) posY, (int) posZ, cached);
 				}
 			} else {
@@ -306,8 +311,8 @@ public class LODEntityRenderer {
 			if (submitEntityModel(dispatcher, cameraState, entity, entity.getX(), entity.getY(), entity.getZ(),
 					cameraPos, poseStack, submitCollector)) {
 				modelCount++;
-				if (config.debugLogging && debugLogCount++ < 3) {
-					LOGGER.info("[LODEntity] Rendered native model: type={} pos=({},{},{})",
+				if (config.debugLogging) {
+					DEBUG.log("[LODEntity] Rendered native model: type={} pos=({},{},{})",
 						entityType, (int) entity.getX(), (int) entity.getY(), (int) entity.getZ());
 				}
 			} else {
@@ -334,9 +339,10 @@ public class LODEntityRenderer {
 		}
 
 		if (config.debugLogging) {
-			LOGGER.info("[LODEntity] Frame: models={} billboards={} skipped={} failed={}",
+			DEBUG.log("[LODEntity] Frame: models={} billboards={} skipped={} failed={}",
 				modelCount, billboardCount, skippedCount, failedCount);
 		}
+		DEBUG.flush();
 	}
 
 	/**
@@ -387,7 +393,7 @@ public class LODEntityRenderer {
 			if (entity == null) {
 				LOGGER.warn("[LODEntity] EntityType.create() returned null for {}", lodEntity.entityType());
 			} else if (config.debugLogging) {
-				LOGGER.info("[LODEntity] Created entity instance: type={}", lodEntity.entityType());
+				DEBUG.log("[LODEntity] Created entity instance: type={}", lodEntity.entityType());
 			}
 			return entity;
 		} catch (Exception e) {
