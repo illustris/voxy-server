@@ -1,18 +1,23 @@
 package me.cortex.voxy.server.streaming;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import me.cortex.voxy.server.VoxyServerMod;
 import me.cortex.voxy.server.config.VoxyServerConfig;
+import me.cortex.voxy.server.mixin.ChunkMapAccessor;
+import me.cortex.voxy.server.mixin.TrackedEntityAccessor;
 import me.cortex.voxy.server.network.LODEntityRemovePayload;
 import me.cortex.voxy.server.network.LODEntityUpdatePayload;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerEntity;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerPlayerConnection;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.entity.LivingEntity;
@@ -146,9 +151,16 @@ public class EntitySyncService {
 	}
 
 	/**
-	 * Native mode: rebuild the force-track set from the scan results.
-	 * The ChunkMap$TrackedEntity mixin reads this set to decide whether
-	 * to force vanilla entity tracking for far entities.
+	 * Native mode: rebuild the force-track set and proactively add entities to
+	 * vanilla's tracking. We cannot rely on vanilla calling updatePlayer() --
+	 * that only happens on player/entity section crossings, so a stationary
+	 * observer might wait indefinitely for a far entity to appear. Instead we
+	 * directly add the observer to each entity's seenBy set and call addPairing
+	 * so that vanilla's ServerEntity.sendChanges() streams position packets
+	 * immediately.
+	 *
+	 * The ChunkMap$TrackedEntity mixin still prevents vanilla from *removing*
+	 * force-tracked entities when its own distance/chunk checks fail.
 	 */
 	private void syncEntitiesNative(ServerPlayer observer, ServerLevel level, int vanillaRadiusBlocks) {
 		List<CandidateEntity> candidates = scanCandidates(observer, level, vanillaRadiusBlocks);
@@ -160,8 +172,24 @@ public class EntitySyncService {
 
 		forceTrackSets.put(observer.getUUID(), newSet);
 
-		VoxyServerMod.debug("[EntitySync] Native force-track set for {}: {} entities",
-			observer.getName().getString(), newSet.size());
+		// Proactively add tracking via ChunkMap internals
+		var chunkMap = level.getChunkSource().chunkMap;
+		Int2ObjectMap<?> entityMap = ((ChunkMapAccessor) chunkMap).voxy$getEntityMap();
+
+		int added = 0;
+		for (CandidateEntity c : candidates) {
+			Object tracked = entityMap.get(c.entityId);
+			if (tracked instanceof TrackedEntityAccessor tea) {
+				Set<ServerPlayerConnection> seenBy = tea.voxy$getSeenBy();
+				if (seenBy.add(observer.connection)) {
+					tea.voxy$getServerEntity().addPairing(observer);
+					added++;
+				}
+			}
+		}
+
+		VoxyServerMod.debug("[EntitySync] Native force-track for {}: {} entities ({} newly paired)",
+			observer.getName().getString(), newSet.size(), added);
 	}
 
 	/**
