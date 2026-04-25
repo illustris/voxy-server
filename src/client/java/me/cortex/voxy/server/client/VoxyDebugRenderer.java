@@ -140,13 +140,15 @@ public class VoxyDebugRenderer {
 		line(consumer, matrix, x0, y0, z1, x0, y1, z1, r, g, b, a, 0, 1, 0);
 	}
 
+	private static final float LINE_WIDTH = 2.0f;
+
 	private static void line(VertexConsumer consumer, Matrix4f matrix,
 							  float x0, float y0, float z0,
 							  float x1, float y1, float z1,
 							  float r, float g, float b, float a,
 							  float nx, float ny, float nz) {
-		consumer.addVertex(matrix, x0, y0, z0).setColor(r, g, b, a).setNormal(nx, ny, nz);
-		consumer.addVertex(matrix, x1, y1, z1).setColor(r, g, b, a).setNormal(nx, ny, nz);
+		consumer.addVertex(matrix, x0, y0, z0).setColor(r, g, b, a).setNormal(nx, ny, nz).setLineWidth(LINE_WIDTH);
+		consumer.addVertex(matrix, x1, y1, z1).setColor(r, g, b, a).setNormal(nx, ny, nz).setLineWidth(LINE_WIDTH);
 	}
 
 	//?} else {
