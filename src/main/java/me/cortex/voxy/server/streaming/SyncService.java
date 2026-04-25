@@ -6,6 +6,7 @@ import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.common.world.WorldSection;
 import me.cortex.voxy.server.VoxyServerMod;
 import me.cortex.voxy.server.config.VoxyServerConfig;
+import me.cortex.voxy.server.engine.ChunkVoxelizer;
 import me.cortex.voxy.server.engine.ServerLodEngine;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import me.cortex.voxy.server.merkle.MerkleHashUtil;
@@ -19,8 +20,17 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunk;
+//? if !MC_1_20_1 {
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+//?} else {
+/*import net.minecraft.world.level.chunk.ChunkStatus;
+*///?}
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,6 +51,8 @@ public class SyncService {
 		t.setDaemon(true);
 		return t;
 	});
+	private final ExecutorService genExecutor;
+	private volatile ChunkVoxelizer chunkVoxelizer;
 	private int tickCounter = 0;
 
 	// Debounce: sectionKey -> (dimension, tick when last dirtied)
@@ -52,7 +64,21 @@ public class SyncService {
 		this.engine = engine;
 		this.config = config;
 		engine.setDirtySectionListener(this::onSectionDirty);
-		VoxyServerMod.LOGGER.info("[Sync] SyncService created with lodStreamRadius={}", config.lodStreamRadius);
+		this.genExecutor = Executors.newFixedThreadPool(
+			Math.max(1, config.chunkGenConcurrency),
+			r -> {
+				Thread t = new Thread(r, "VoxyServer MerkleGen");
+				t.setDaemon(true);
+				t.setPriority(Thread.MIN_PRIORITY);
+				return t;
+			}
+		);
+		VoxyServerMod.LOGGER.info("[Sync] SyncService created with lodStreamRadius={}, genConcurrency={}",
+			config.lodStreamRadius, config.chunkGenConcurrency);
+	}
+
+	public void setChunkVoxelizer(ChunkVoxelizer voxelizer) {
+		this.chunkVoxelizer = voxelizer;
 	}
 
 	public void register() {
@@ -172,13 +198,13 @@ public class SyncService {
 				regionMap.put(columnKey, columnHash);
 			}
 
-			List<Long> differing = session.getTree().findDifferingL0Sections(clientL1ByRegion);
+			PlayerMerkleTree.MerkleDiffResult diff = session.getTree().findDifferingL0Sections(clientL1ByRegion);
 
-			VoxyServerMod.LOGGER.info("[Sync] Merkle diff for {}: {} differing L0 sections across {} regions",
-				player.getName().getString(), differing.size(), clientL1ByRegion.size());
+			VoxyServerMod.LOGGER.info("[Sync] Merkle diff for {}: {} sections to sync, {} columns to generate across {} regions",
+				player.getName().getString(), diff.sectionsToSync().size(),
+				diff.columnsToGenerate().size(), clientL1ByRegion.size());
 
 			if (VoxyServerMod.isDebug()) {
-				// Log each differing column with coordinates
 				for (var regionEntry : clientL1ByRegion.long2ObjectEntrySet()) {
 					long regionKey = regionEntry.getLongKey();
 					Long2LongOpenHashMap clientL1 = regionEntry.getValue();
@@ -198,18 +224,82 @@ public class SyncService {
 				}
 			}
 
-			if (differing.isEmpty()) {
-				session.setState(PlayerSyncSession.State.IDLE);
-				VoxyServerMod.LOGGER.info("[Sync] {} is fully synced", player.getName().getString());
-				return;
+			// Sync path: enqueue sections where server has data the client needs
+			if (!diff.sectionsToSync().isEmpty()) {
+				session.enqueueSections(diff.sectionsToSync());
+				session.setState(PlayerSyncSession.State.SYNCING);
+				VoxyServerMod.LOGGER.info("[Sync] Queued {} sections for sending to {}",
+					diff.sectionsToSync().size(), player.getName().getString());
 			}
 
-			session.enqueueSections(differing);
-			session.setState(PlayerSyncSession.State.SYNCING);
-			VoxyServerMod.LOGGER.info("[Sync] Queued {} sections for sending to {}",
-				differing.size(), player.getName().getString());
+			// Generation path: schedule chunk generation for incomplete sections
+			if (!diff.columnsToGenerate().isEmpty() && chunkVoxelizer != null) {
+				Identifier dimension = session.getCurrentDimension();
+				ServerLevel level = findLevel(server, dimension);
+				if (level != null) {
+					int playerSectionX = player.getBlockX() >> 5;
+					int playerSectionZ = player.getBlockZ() >> 5;
+					scheduleGeneration(server, level, diff.columnsToGenerate(),
+						session, playerSectionX, playerSectionZ);
+				}
+			}
+
+			if (diff.sectionsToSync().isEmpty() && diff.columnsToGenerate().isEmpty()) {
+				session.setState(PlayerSyncSession.State.IDLE);
+				VoxyServerMod.LOGGER.info("[Sync] {} is fully synced", player.getName().getString());
+			}
 		} catch (Exception e) {
 			VoxyServerMod.LOGGER.error("[Sync] Failed to process client L1 hashes for {}", player.getName().getString(), e);
+		}
+	}
+
+	private void scheduleGeneration(MinecraftServer server, ServerLevel level,
+			List<long[]> columns, PlayerSyncSession session,
+			int playerSectionX, int playerSectionZ) {
+		// Sort by distance from player (closest first)
+		List<long[]> sorted = new ArrayList<>(columns);
+		sorted.sort(Comparator.comparingLong(col -> {
+			long dx = col[0] - playerSectionX;
+			long dz = col[1] - playerSectionZ;
+			return dx * dx + dz * dz;
+		}));
+
+		int scheduled = 0;
+		for (long[] col : sorted) {
+			int sectionX = (int) col[0];
+			int sectionZ = (int) col[1];
+			long columnKey = MerkleHashUtil.packColumnKey(sectionX, sectionZ);
+
+			if (session.isGenerationPending(columnKey)) continue;
+
+			List<ChunkPos> missingChunks = engine.getSectionHashStore()
+				.getMissingChunksForSection(sectionX, sectionZ);
+			if (missingChunks.isEmpty()) continue;
+
+			session.markGenerationStarted(columnKey);
+			scheduled++;
+
+			for (ChunkPos pos : missingChunks) {
+				genExecutor.execute(() -> {
+					server.execute(() -> {
+						try {
+							ChunkAccess chunk = level.getChunkSource().getChunk(
+								pos.x(), pos.z(), ChunkStatus.FULL, true);
+							if (chunk instanceof LevelChunk lc) {
+								chunkVoxelizer.voxelizeNewChunk(level, lc);
+							}
+						} catch (Exception e) {
+							VoxyServerMod.LOGGER.warn("[MerkleGen] Failed to generate chunk ({},{}): {}",
+								pos.x(), pos.z(), e.getMessage());
+						}
+					});
+				});
+			}
+		}
+
+		if (scheduled > 0) {
+			VoxyServerMod.LOGGER.info("[MerkleGen] Scheduled generation for {} columns ({} were already pending) for {}",
+				scheduled, columns.size() - scheduled, session.getPlayer().getName().getString());
 		}
 	}
 
@@ -334,6 +424,7 @@ public class SyncService {
 					Identifier dimension = session.getCurrentDimension();
 					streamWorker.execute(() -> {
 						try {
+							session.clearPendingGeneration();
 							session.buildTree(engine.getSectionHashStore(), sectionX, sectionZ, config.lodStreamRadius);
 							session.updatePosition(sectionX, sectionZ);
 
@@ -479,8 +570,10 @@ public class SyncService {
 
 	public void shutdown() {
 		VoxyServerMod.LOGGER.info("[Sync] Shutting down SyncService");
+		genExecutor.shutdownNow();
 		streamWorker.shutdownNow();
 		try {
+			genExecutor.awaitTermination(5, TimeUnit.SECONDS);
 			streamWorker.awaitTermination(5, TimeUnit.SECONDS);
 		} catch (InterruptedException ignored) {
 			Thread.currentThread().interrupt();

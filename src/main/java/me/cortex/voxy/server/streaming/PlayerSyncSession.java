@@ -40,6 +40,10 @@ public class PlayerSyncSession {
 	// Set of section keys already sent
 	private final LongOpenHashSet sentSections = new LongOpenHashSet();
 
+	// Column keys (packed as MerkleHashUtil.packColumnKey) currently being generated.
+	// Prevents re-scheduling the same section across successive Merkle rounds.
+	private final LongOpenHashSet pendingGeneration = new LongOpenHashSet();
+
 	public PlayerSyncSession(ServerPlayer player) {
 		this.playerId = player.getUUID();
 		this.player = player;
@@ -111,7 +115,20 @@ public class PlayerSyncSession {
 		this.tree = null;
 		this.sendQueue.clear();
 		this.sentSections.clear();
+		this.pendingGeneration.clear();
 		this.state = State.AWAITING_READY;
+	}
+
+	public boolean isGenerationPending(long columnKey) {
+		return pendingGeneration.contains(columnKey);
+	}
+
+	public void markGenerationStarted(long columnKey) {
+		pendingGeneration.add(columnKey);
+	}
+
+	public void clearPendingGeneration() {
+		pendingGeneration.clear();
 	}
 
 	/**

@@ -22,7 +22,6 @@ public class VoxyServerConfig {
 	public int dirtyScanInterval = 10;
 	public int maxDirtyChunksPerScan = 64;
 	public boolean debugLogging = false;
-	public boolean passiveChunkGeneration = true;
 	public int chunkGenConcurrency = 8;
 
 	// Entity sync settings

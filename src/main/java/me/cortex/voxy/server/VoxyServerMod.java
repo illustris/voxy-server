@@ -2,7 +2,6 @@ package me.cortex.voxy.server;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import me.cortex.voxy.server.config.VoxyServerConfig;
-import me.cortex.voxy.server.engine.ChunkGenerationService;
 import me.cortex.voxy.server.engine.ChunkVoxelizer;
 import me.cortex.voxy.server.engine.DirtyScanService;
 import me.cortex.voxy.server.engine.ServerLodEngine;
@@ -38,7 +37,6 @@ public class VoxyServerMod implements ModInitializer {
 	private ChunkVoxelizer chunkVoxelizer;
 	private SyncService syncService;
 	private DirtyScanService dirtyScanService;
-	private ChunkGenerationService chunkGenService;
 	private EntitySyncService entitySyncService;
 
 	private static volatile boolean debugEnabled = false;
@@ -91,11 +89,7 @@ public class VoxyServerMod implements ModInitializer {
 			syncService.register();
 			chunkVoxelizer = new ChunkVoxelizer(lodEngine, syncService, config);
 			chunkVoxelizer.register();
-			if (config.passiveChunkGeneration) {
-				chunkGenService = new ChunkGenerationService(lodEngine, chunkVoxelizer, config);
-			} else {
-				LOGGER.info("Passive chunk generation disabled");
-			}
+			syncService.setChunkVoxelizer(chunkVoxelizer);
 			dirtyScanService = new DirtyScanService(lodEngine, chunkVoxelizer, syncService, config);
 			if (config.enableEntitySync) {
 				entitySyncService = new EntitySyncService(config, syncService);
@@ -105,7 +99,6 @@ public class VoxyServerMod implements ModInitializer {
 			ServerTickEvents.END_SERVER_TICK.register(tick -> {
 				if (syncService != null) syncService.tick(tick);
 				if (dirtyScanService != null) dirtyScanService.tick(tick);
-				if (chunkGenService != null) chunkGenService.tick(tick);
 				if (entitySyncService != null) entitySyncService.tick(tick);
 				flushDebugLogs();
 			});
@@ -118,7 +111,6 @@ public class VoxyServerMod implements ModInitializer {
 				LOGGER.info("Shutting down Voxy Server engine");
 				entitySyncServiceInstance = null;
 				if (entitySyncService != null) entitySyncService.shutdown();
-				if (chunkGenService != null) chunkGenService.shutdown();
 				if (syncService != null) syncService.shutdown();
 				if (dirtyScanService != null) dirtyScanService.shutdown();
 				lodEngine.shutdown();
@@ -126,7 +118,6 @@ public class VoxyServerMod implements ModInitializer {
 				chunkVoxelizer = null;
 				syncService = null;
 				dirtyScanService = null;
-				chunkGenService = null;
 				entitySyncService = null;
 			}
 		});

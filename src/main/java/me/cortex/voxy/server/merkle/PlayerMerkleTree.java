@@ -65,7 +65,7 @@ public class PlayerMerkleTree {
 		int minZ = centerZ - radius;
 		int maxZ = centerZ + radius;
 
-		// Load all L0 hashes in bounds
+		// Load all L0 hashes in bounds into the sparse map and column index
 		store.iterateInBounds(minX, maxX, minZ, maxZ, (sectionKey, hash) -> {
 			tree.l0Hashes.put(sectionKey.longValue(), hash.longValue());
 
@@ -73,28 +73,37 @@ public class PlayerMerkleTree {
 			int z = WorldEngine.getZ(sectionKey);
 			long colKey = MerkleHashUtil.packColumnKey(x, z);
 			tree.columnToSections.computeIfAbsent(colKey, k -> new LongArrayList()).add(sectionKey.longValue());
-
-			int rx = MerkleHashUtil.sectionToRegionX(x);
-			int rz = MerkleHashUtil.sectionToRegionZ(z);
-			long regKey = MerkleHashUtil.packRegionKey(rx, rz);
-			LongArrayList cols = tree.regionToColumns.computeIfAbsent(regKey, k -> new LongArrayList());
-			if (!cols.contains(colKey)) {
-				cols.add(colKey);
-			}
 		});
 
-		// Compute L1 hashes
-		for (var entry : tree.columnToSections.long2ObjectEntrySet()) {
-			long colKey = entry.getLongKey();
-			LongArrayList sectionKeys = entry.getValue();
-			long[] hashes = new long[sectionKeys.size()];
-			for (int i = 0; i < sectionKeys.size(); i++) {
-				hashes[i] = tree.l0Hashes.get(sectionKeys.getLong(i));
+		// Dense L1: iterate the full XZ grid. Columns with no L0 entries get hash 0.
+		for (int x = minX; x <= maxX; x++) {
+			for (int z = minZ; z <= maxZ; z++) {
+				long colKey = MerkleHashUtil.packColumnKey(x, z);
+				LongArrayList sectionKeys = tree.columnToSections.get(colKey);
+
+				long colHash;
+				if (sectionKeys != null && !sectionKeys.isEmpty()) {
+					long[] hashes = new long[sectionKeys.size()];
+					for (int i = 0; i < sectionKeys.size(); i++) {
+						hashes[i] = tree.l0Hashes.get(sectionKeys.getLong(i));
+					}
+					colHash = MerkleHashUtil.hashColumn(hashes);
+				} else {
+					colHash = 0;
+				}
+				tree.l1Hashes.put(colKey, colHash);
+
+				int rx = MerkleHashUtil.sectionToRegionX(x);
+				int rz = MerkleHashUtil.sectionToRegionZ(z);
+				long regKey = MerkleHashUtil.packRegionKey(rx, rz);
+				LongArrayList cols = tree.regionToColumns.computeIfAbsent(regKey, k -> new LongArrayList());
+				if (!cols.contains(colKey)) {
+					cols.add(colKey);
+				}
 			}
-			tree.l1Hashes.put(colKey, MerkleHashUtil.hashColumn(hashes));
 		}
 
-		// Compute L2 hashes
+		// Compute L2 hashes from the full (dense) set of L1 columns
 		for (var entry : tree.regionToColumns.long2ObjectEntrySet()) {
 			long regKey = entry.getLongKey();
 			LongArrayList colKeys = entry.getValue();
@@ -181,11 +190,20 @@ public class PlayerMerkleTree {
 	}
 
 	/**
-	 * Compare client's L1 hashes against ours for given regions.
-	 * Returns list of L0 section keys that differ.
+	 * Result of a Merkle diff: sections that need syncing vs columns that need generation.
 	 */
-	public List<Long> findDifferingL0Sections(Long2ObjectOpenHashMap<Long2LongOpenHashMap> clientL1ByRegion) {
-		List<Long> differing = new ArrayList<>();
+	public record MerkleDiffResult(
+		List<Long> sectionsToSync,     // server has real hash, client differs -- send data
+		List<long[]> columnsToGenerate // [sectionX, sectionZ] pairs where server hash is 0 -- generate chunks
+	) {}
+
+	/**
+	 * Compare client's L1 hashes against ours for given regions.
+	 * Returns a MerkleDiffResult distinguishing sections to sync from columns to generate.
+	 */
+	public MerkleDiffResult findDifferingL0Sections(Long2ObjectOpenHashMap<Long2LongOpenHashMap> clientL1ByRegion) {
+		List<Long> sectionsToSync = new ArrayList<>();
+		List<long[]> columnsToGenerate = new ArrayList<>();
 
 		for (var regionEntry : clientL1ByRegion.long2ObjectEntrySet()) {
 			long regionKey = regionEntry.getLongKey();
@@ -198,28 +216,26 @@ public class PlayerMerkleTree {
 				long serverHash = colEntry.getLongValue();
 				long clientHash = clientL1.get(colKey);
 
-				if (serverHash != clientHash) {
-					// All L0 sections in this column need to be sent
+				if (serverHash == clientHash) continue;
+
+				if (serverHash == 0) {
+					// Server doesn't have complete data -- needs generation
+					int cx = MerkleHashUtil.columnKeyX(colKey);
+					int cz = MerkleHashUtil.columnKeyZ(colKey);
+					columnsToGenerate.add(new long[]{cx, cz});
+				} else {
+					// Server has data the client needs -- sync
 					LongArrayList sectionKeys = columnToSections.get(colKey);
 					if (sectionKeys != null) {
 						for (int i = 0; i < sectionKeys.size(); i++) {
-							differing.add(sectionKeys.getLong(i));
+							sectionsToSync.add(sectionKeys.getLong(i));
 						}
 					}
 				}
 			}
-
-			// Also check for columns server has that client doesn't
-			for (var colEntry : clientL1.long2LongEntrySet()) {
-				long colKey = colEntry.getLongKey();
-				if (!serverL1.containsKey(colKey) && colEntry.getLongValue() != 0) {
-					// Client has data for a column server doesn't -- could signal deletion
-					// For now, skip (server is authoritative)
-				}
-			}
 		}
 
-		return differing;
+		return new MerkleDiffResult(sectionsToSync, columnsToGenerate);
 	}
 
 	/**

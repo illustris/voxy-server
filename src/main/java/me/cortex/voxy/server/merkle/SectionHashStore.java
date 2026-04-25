@@ -7,9 +7,13 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 
+import net.minecraft.world.level.ChunkPos;
+
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.BiConsumer;
 
 /**
@@ -99,6 +103,29 @@ public class SectionHashStore {
 				iter.next();
 			}
 		}
+	}
+
+	/**
+	 * Check which of the 4 per-chunk markers (level=15 namespace) are absent
+	 * for the 2x2 chunks covering a WorldSection at (sectionX, sectionZ).
+	 * Returns the ChunkPos values that still need voxelization.
+	 * An empty list means the section is complete.
+	 */
+	public List<ChunkPos> getMissingChunksForSection(int sectionX, int sectionZ) {
+		List<ChunkPos> missing = new ArrayList<>();
+		int baseChunkX = sectionX * 2;
+		int baseChunkZ = sectionZ * 2;
+		for (int dx = 0; dx < 2; dx++) {
+			for (int dz = 0; dz < 2; dz++) {
+				int chunkX = baseChunkX + dx;
+				int chunkZ = baseChunkZ + dz;
+				long markerKey = WorldEngine.getWorldSectionId(15, chunkX, 0, chunkZ);
+				if (getHash(markerKey) == 0) {
+					missing.add(new ChunkPos(chunkX, chunkZ));
+				}
+			}
+		}
+		return missing;
 	}
 
 	public void close() {
