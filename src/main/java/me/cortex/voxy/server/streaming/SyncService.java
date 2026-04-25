@@ -42,6 +42,7 @@ public class SyncService {
 	private static final int TREE_REBUILD_DISTANCE = 64;
 	private static final int POSITION_CHECK_INTERVAL = 100;
 	private static final int DIRTY_DEBOUNCE_TICKS = 20; // wait 1 second after last dirty before processing
+	private static final int STATUS_SEND_INTERVAL = 20; // send sync status to clients every 1 second
 
 	private final ServerLodEngine engine;
 	private final VoxyServerConfig config;
@@ -548,6 +549,21 @@ public class SyncService {
 					VoxyServerMod.LOGGER.error("[Sync] Failed to send section batch to {}", player.getName().getString(), e);
 				}
 			});
+		}
+
+		// Periodically send sync status to connected players
+		if (tickCounter % STATUS_SEND_INTERVAL == 0) {
+			for (PlayerSyncSession session : sessions.values()) {
+				ServerPlayer player = session.getPlayer();
+				if (player.isRemoved()) continue;
+
+				SyncStatusPayload status = new SyncStatusPayload(
+					session.getSendQueueSize(),
+					session.getState().ordinal(),
+					session.getPendingGenerationCount()
+				);
+				ServerPlayNetworking.send(player, status);
+			}
 		}
 	}
 

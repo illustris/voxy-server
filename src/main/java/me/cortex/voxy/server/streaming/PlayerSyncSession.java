@@ -168,4 +168,12 @@ public class PlayerSyncSession {
 	public boolean hasPendingSections() {
 		return !sendQueue.isEmpty();
 	}
+
+	public int getSendQueueSize() {
+		return sendQueue.size();
+	}
+
+	public int getPendingGenerationCount() {
+		return pendingGeneration.size();
+	}
 }

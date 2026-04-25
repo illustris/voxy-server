@@ -25,6 +25,11 @@ public class VoxyBandwidthTracker {
 	private static final AtomicLong entityBytes = new AtomicLong();
 	private static final AtomicLong merkleBytes = new AtomicLong();
 
+	// Server sync status (updated via SyncStatusPayload)
+	private static volatile int serverQueueSize = -1;
+	private static volatile int serverSyncState = -1;
+	private static volatile int serverPendingGenCount = -1;
+
 	public static void recordBytes(String category, int bytes) {
 		long now = System.currentTimeMillis();
 		int bucketIndex = (int) ((now / (WINDOW_MS / BUCKET_COUNT)) % BUCKET_COUNT);
@@ -83,6 +88,24 @@ public class VoxyBandwidthTracker {
 		return totalPacketsReceived.get();
 	}
 
+	public static void updateServerStatus(int queueSize, int syncState, int pendingGenCount) {
+		serverQueueSize = queueSize;
+		serverSyncState = syncState;
+		serverPendingGenCount = pendingGenCount;
+	}
+
+	public static int getServerQueueSize() {
+		return serverQueueSize;
+	}
+
+	public static int getServerSyncState() {
+		return serverSyncState;
+	}
+
+	public static int getServerPendingGenCount() {
+		return serverPendingGenCount;
+	}
+
 	public static void reset() {
 		synchronized (bucketBytes) {
 			for (int i = 0; i < BUCKET_COUNT; i++) {
@@ -96,5 +119,8 @@ public class VoxyBandwidthTracker {
 		sectionBytes.set(0);
 		entityBytes.set(0);
 		merkleBytes.set(0);
+		serverQueueSize = -1;
+		serverSyncState = -1;
+		serverPendingGenCount = -1;
 	}
 }

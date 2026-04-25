@@ -1,16 +1,23 @@
 package me.cortex.voxy.server.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.brigadier.arguments.StringArgumentType;
 //? if HAS_DEBUG_SCREEN {
 import me.cortex.voxy.server.mixin.client.DebugScreenEntriesAccessor;
 //?}
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 //? if HAS_RENDER_PIPELINES {
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
-//?}
+//?} else {
+/*import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+*///?}
+import net.minecraft.client.KeyMapping;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import org.lwjgl.glfw.GLFW;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal;
@@ -43,7 +50,52 @@ public class VoxyServerClient implements ClientModInitializer {
 		// solid render types (entityCutoutNoCull used by most mobs) would never
 		// be processed because the solid pass already ran.
 		LevelRenderEvents.COLLECT_SUBMITS.register(entityRenderer::render);
+
+		VoxyDebugRenderer debugRenderer = new VoxyDebugRenderer();
+		LevelRenderEvents.COLLECT_SUBMITS.register(debugRenderer::render);
 		//?}
+
+		// Keybind to toggle LOD border visualization
+		//? if HAS_IDENTIFIER {
+		KeyMapping borderKey = new KeyMapping(
+			"key.voxy-server.toggle_border",
+			InputConstants.Type.KEYSYM,
+			GLFW.GLFW_KEY_B,
+			KeyMapping.Category.MISC
+		);
+		//?} else {
+		/*KeyMapping borderKey = new KeyMapping(
+			"key.voxy-server.toggle_border",
+			InputConstants.Type.KEYSYM,
+			GLFW.GLFW_KEY_B,
+			"category.voxy-server"
+		);
+		*///?}
+		//? if HAS_RENDER_PIPELINES {
+		KeyMappingHelper.registerKeyMapping(borderKey);
+		//?} else {
+		/*KeyBindingHelper.registerKeyBinding(borderKey);
+		*///?}
+
+		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			while (borderKey.consumeClick()) {
+				VoxyDebugRenderer.toggleBorder();
+				if (client.player != null) {
+					//? if HAS_RENDER_PIPELINES {
+					client.player.sendOverlayMessage(
+						Component.literal("[Voxy] LOD border " +
+							(VoxyDebugRenderer.isBorderEnabled() ? "shown" : "hidden"))
+					);
+					//?} else {
+					/*client.player.displayClientMessage(
+						Component.literal("[Voxy] LOD border " +
+							(VoxyDebugRenderer.isBorderEnabled() ? "shown" : "hidden")),
+						true
+					);
+					*///?}
+				}
+			}
+		});
 
 		registerCommands();
 	}
@@ -78,6 +130,22 @@ public class VoxyServerClient implements ClientModInitializer {
 						clientConfig.debugLogging = !clientConfig.debugLogging;
 						clientConfig.save();
 						ctx.getSource().sendFeedback(Component.literal("Debug logging " + (clientConfig.debugLogging ? "enabled" : "disabled")));
+						return 1;
+					})));
+
+			dispatcher.register(literal("voxyhighlight")
+				.executes(ctx -> {
+					LODSectionHighlightTracker.toggle();
+					ctx.getSource().sendFeedback(Component.literal(
+						"[Voxy] Section highlighting " +
+						(LODSectionHighlightTracker.isEnabled() ? "enabled" : "disabled")
+					));
+					return 1;
+				})
+				.then(literal("clear")
+					.executes(ctx -> {
+						LODSectionHighlightTracker.clear();
+						ctx.getSource().sendFeedback(Component.literal("[Voxy] Cleared section highlights"));
 						return 1;
 					})));
 		});

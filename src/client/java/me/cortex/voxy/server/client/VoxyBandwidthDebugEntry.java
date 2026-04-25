@@ -17,8 +17,30 @@ public class VoxyBandwidthDebugEntry implements DebugScreenEntry {
 		int sections = VoxyBandwidthTracker.getTotalSectionsReceived();
 		int entities = ClientSyncHandler.getLODEntityManager().size();
 
-		displayer.addLine(String.format("[Voxy] %.1f KB/s in | %d sections synced | %d LOD entities",
+		StringBuilder sb = new StringBuilder();
+		sb.append(String.format("[Voxy] %.1f KB/s in | %d sections synced | %d LOD entities",
 			kbps, sections, entities));
+
+		int queueSize = VoxyBandwidthTracker.getServerQueueSize();
+		int stateOrd = VoxyBandwidthTracker.getServerSyncState();
+		if (queueSize >= 0 && stateOrd >= 0) {
+			String stateName = switch (stateOrd) {
+				case 0 -> "AWAITING";
+				case 1 -> "TREE_BUILT";
+				case 2 -> "L2_SENT";
+				case 3 -> "SYNCING";
+				case 4 -> "IDLE";
+				default -> "?";
+			};
+			sb.append(String.format(" | %d queued (%s)", queueSize, stateName));
+
+			int genCount = VoxyBandwidthTracker.getServerPendingGenCount();
+			if (genCount > 0) {
+				sb.append(String.format(" +%d gen", genCount));
+			}
+		}
+
+		displayer.addLine(sb.toString());
 	}
 }
 //?} else {

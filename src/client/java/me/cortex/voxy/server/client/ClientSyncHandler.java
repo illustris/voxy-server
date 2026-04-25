@@ -34,9 +34,14 @@ public class ClientSyncHandler {
 	private static final Logger LOGGER = LoggerFactory.getLogger("voxy-server-client");
 	private static final ClientMerkleState merkleState = new ClientMerkleState();
 	private static final LODEntityManager lodEntityManager = new LODEntityManager();
+	private static volatile int maxRadius = 0;
 
 	public static LODEntityManager getLODEntityManager() {
 		return lodEntityManager;
+	}
+
+	public static int getMaxRadius() {
+		return maxRadius;
 	}
 
 	public static void register() {
@@ -51,6 +56,7 @@ public class ClientSyncHandler {
 			// reconnection. The hashes are still valid for unchanged sections.
 			// Only clear on dimension change (LODClearPayload).
 			VoxyBandwidthTracker.reset();
+			maxRadius = 0;
 			LOGGER.info("[ClientSync] Disconnected, preserving Merkle state for reconnection");
 		});
 
@@ -58,6 +64,7 @@ public class ClientSyncHandler {
 		// Handle server settings
 		ClientPlayNetworking.registerGlobalReceiver(MerkleSettingsPayload.TYPE, (payload, context) -> {
 			VoxyBandwidthTracker.recordBytes("merkle", 8);
+			maxRadius = payload.maxRadius();
 			LOGGER.info("[ClientSync] Received settings: radius={} maxSections={}",
 				payload.maxRadius(), payload.maxSectionsPerTick());
 		});
@@ -111,10 +118,18 @@ public class ClientSyncHandler {
 			VoxyBandwidthTracker.recordBytes("entities", payload.entityIds().length * 5 + 4);
 			context.client().execute(() -> lodEntityManager.applyRemoval(payload));
 		});
+
+		// Handle sync status from server
+		ClientPlayNetworking.registerGlobalReceiver(SyncStatusPayload.TYPE, (payload, context) -> {
+			VoxyBandwidthTracker.updateServerStatus(
+				payload.queueSize(), payload.syncState(), payload.pendingGenCount()
+			);
+		});
 		//?} else {
 		/*// Handle server settings
 		ClientPlayNetworking.registerGlobalReceiver(MerkleSettingsPayload.TYPE, (packet, player, sender) -> {
 			VoxyBandwidthTracker.recordBytes("merkle", 8);
+			maxRadius = packet.maxRadius();
 			LOGGER.info("[ClientSync] Received settings: radius={} maxSections={}",
 				packet.maxRadius(), packet.maxSectionsPerTick());
 		});
@@ -168,6 +183,13 @@ public class ClientSyncHandler {
 			VoxyBandwidthTracker.recordBytes("entities", packet.entityIds().length * 5 + 4);
 			Minecraft.getInstance().execute(() -> lodEntityManager.applyRemoval(packet));
 		});
+
+		// Handle sync status from server
+		ClientPlayNetworking.registerGlobalReceiver(SyncStatusPayload.TYPE, (packet, player, sender) -> {
+			VoxyBandwidthTracker.updateServerStatus(
+				packet.queueSize(), packet.syncState(), packet.pendingGenCount()
+			);
+		});
 		*///?}
 	}
 
@@ -216,6 +238,8 @@ public class ClientSyncHandler {
 	}
 
 	private static void handleSection(LODSectionPayload payload) {
+		LODSectionHighlightTracker.onSectionReceived(payload.sectionKey());
+
 		var instance = VoxyCommon.getInstance();
 		if (instance == null) return;
 
