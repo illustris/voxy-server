@@ -1,11 +1,7 @@
 package me.cortex.voxy.server.streaming;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 import java.util.UUID;
 
@@ -16,7 +12,7 @@ import java.util.UUID;
 public class PlayerEntityTracker {
 
 	public record EntitySnapshot(
-		/*$ rl_type */Identifier entityType,
+		Identifier entityType,
 		int blockX,
 		int blockY,
 		int blockZ,

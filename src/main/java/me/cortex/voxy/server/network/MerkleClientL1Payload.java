@@ -9,11 +9,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 /**
  * C2S: Client sends its L1 column hashes for mismatched L2 regions.
@@ -21,20 +17,20 @@ import net.minecraft.resources.Identifier;
  */
 //? if HAS_NEW_NETWORKING {
 public record MerkleClientL1Payload(
-	/*$ rl_type */Identifier dimension,
+	Identifier dimension,
 	long[] regionKeys,
 	long[] columnKeys,
 	long[] columnHashes
 ) implements CustomPacketPayload {
 
 	public static final Type<MerkleClientL1Payload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:merkle_client_l1"));
+		new Type<>(Identifier.parse("voxy-server:merkle_client_l1"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, MerkleClientL1Payload> CODEC =
 		StreamCodec.of(MerkleClientL1Payload::write, MerkleClientL1Payload::read);
 
 	private static void write(RegistryFriendlyByteBuf buf, MerkleClientL1Payload payload) {
-		buf./*$ write_rl */writeIdentifier(payload.dimension);
+		buf.writeIdentifier(payload.dimension);
 		buf.writeVarInt(payload.regionKeys.length);
 		for (int i = 0; i < payload.regionKeys.length; i++) {
 			buf.writeLong(payload.regionKeys[i]);
@@ -44,7 +40,7 @@ public record MerkleClientL1Payload(
 	}
 
 	private static MerkleClientL1Payload read(RegistryFriendlyByteBuf buf) {
-		/*$ rl_type */Identifier dimension = buf./*$ read_rl */readIdentifier();
+		Identifier dimension = buf.readIdentifier();
 		int count = buf.readVarInt();
 		long[] regionKeys = new long[count];
 		long[] columnKeys = new long[count];

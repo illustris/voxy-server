@@ -9,11 +9,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 /**
  * S2C: Batch removal of LOD-tracked entities.
@@ -25,7 +21,7 @@ public record LODEntityRemovePayload(
 ) implements CustomPacketPayload {
 
 	public static final Type<LODEntityRemovePayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:lod_entity_remove"));
+		new Type<>(Identifier.parse("voxy-server:lod_entity_remove"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, LODEntityRemovePayload> CODEC =
 		StreamCodec.of(LODEntityRemovePayload::write, LODEntityRemovePayload::read);

@@ -12,7 +12,11 @@ import me.cortex.voxy.server.streaming.SyncService;
 import me.cortex.voxy.server.util.DebouncedLogger;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+//? if HAS_RENDER_PIPELINES {
 import net.fabricmc.fabric.api.entity.event.v1.ServerEntityLevelChangeEvents;
+//?} else {
+/*import net.fabricmc.fabric.api.entity.event.v1.ServerEntityWorldChangeEvents;
+*///?}
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -127,6 +131,7 @@ public class VoxyServerMod implements ModInitializer {
 			}
 		});
 
+		//? if HAS_RENDER_PIPELINES {
 		ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register((player, origin, destination) -> {
 			if (syncService != null) {
 				syncService.onDimensionChange(player, destination);
@@ -135,6 +140,16 @@ public class VoxyServerMod implements ModInitializer {
 				entitySyncService.onDimensionChange(player);
 			}
 		});
+		//?} else {
+		/*ServerEntityWorldChangeEvents.AFTER_PLAYER_CHANGE_WORLD.register((player, origin, destination) -> {
+			if (syncService != null) {
+				syncService.onDimensionChange(player, destination);
+			}
+			if (entitySyncService != null) {
+				entitySyncService.onDimensionChange(player);
+			}
+		});
+		*///?}
 
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			if (entitySyncService != null) {

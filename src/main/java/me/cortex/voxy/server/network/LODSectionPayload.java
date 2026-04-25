@@ -9,15 +9,11 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 //? if HAS_NEW_NETWORKING {
 public record LODSectionPayload(
-	/*$ rl_type */Identifier dimension,
+	Identifier dimension,
 	long sectionKey,
 	int[] lutBlockStateIds,
 	int[] lutBiomeIds,
@@ -26,13 +22,13 @@ public record LODSectionPayload(
 ) implements CustomPacketPayload {
 
 	public static final Type<LODSectionPayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:lod_section"));
+		new Type<>(Identifier.parse("voxy-server:lod_section"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, LODSectionPayload> CODEC =
 		StreamCodec.of(LODSectionPayload::write, LODSectionPayload::read);
 
 	private static void write(RegistryFriendlyByteBuf buf, LODSectionPayload payload) {
-		buf./*$ write_rl */writeIdentifier(payload.dimension);
+		buf.writeIdentifier(payload.dimension);
 		buf.writeLong(payload.sectionKey);
 
 		int lutLen = payload.lutBlockStateIds.length;
@@ -60,7 +56,7 @@ public record LODSectionPayload(
 	}
 
 	private static LODSectionPayload read(RegistryFriendlyByteBuf buf) {
-		/*$ rl_type */Identifier dimension = buf./*$ read_rl */readIdentifier();
+		Identifier dimension = buf.readIdentifier();
 		long sectionKey = buf.readLong();
 
 		int lutLen = buf.readVarInt();

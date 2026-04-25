@@ -10,11 +10,7 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 //?}
 import net.minecraft.network.chat.Component;
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal;
@@ -30,7 +26,7 @@ public class VoxyServerClient implements ClientModInitializer {
 		//? if HAS_DEBUG_SCREEN {
 		// Register voxy bandwidth stats in the F3 debug screen
 		DebugScreenEntriesAccessor.invokeRegister(
-			/*$ rl_parse */Identifier.parse("voxy-server:bandwidth"),
+			Identifier.parse("voxy-server:bandwidth"),
 			new VoxyBandwidthDebugEntry()
 		);
 		//?}

@@ -9,30 +9,26 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 /**
  * S2C: Server sends L2 region hashes to client for comparison.
  */
 //? if HAS_NEW_NETWORKING {
 public record MerkleL2HashesPayload(
-	/*$ rl_type */Identifier dimension,
+	Identifier dimension,
 	long[] regionKeys,
 	long[] regionHashes
 ) implements CustomPacketPayload {
 
 	public static final Type<MerkleL2HashesPayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:merkle_l2_hashes"));
+		new Type<>(Identifier.parse("voxy-server:merkle_l2_hashes"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, MerkleL2HashesPayload> CODEC =
 		StreamCodec.of(MerkleL2HashesPayload::write, MerkleL2HashesPayload::read);
 
 	private static void write(RegistryFriendlyByteBuf buf, MerkleL2HashesPayload payload) {
-		buf./*$ write_rl */writeIdentifier(payload.dimension);
+		buf.writeIdentifier(payload.dimension);
 		buf.writeVarInt(payload.regionKeys.length);
 		for (int i = 0; i < payload.regionKeys.length; i++) {
 			buf.writeLong(payload.regionKeys[i]);
@@ -41,7 +37,7 @@ public record MerkleL2HashesPayload(
 	}
 
 	private static MerkleL2HashesPayload read(RegistryFriendlyByteBuf buf) {
-		/*$ rl_type */Identifier dimension = buf./*$ read_rl */readIdentifier();
+		Identifier dimension = buf.readIdentifier();
 		int count = buf.readVarInt();
 		long[] keys = new long[count];
 		long[] hashes = new long[count];

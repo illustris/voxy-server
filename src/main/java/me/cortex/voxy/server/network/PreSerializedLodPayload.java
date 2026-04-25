@@ -11,17 +11,13 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 //? if HAS_NEW_NETWORKING {
 public record PreSerializedLodPayload(byte[] data) implements CustomPacketPayload {
 
 	public static final Type<PreSerializedLodPayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:lod_preserialized"));
+		new Type<>(Identifier.parse("voxy-server:lod_preserialized"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, PreSerializedLodPayload> CODEC =
 		StreamCodec.of(PreSerializedLodPayload::write, PreSerializedLodPayload::read);

@@ -9,21 +9,17 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 import java.util.Optional;
 
 //? if HAS_NEW_NETWORKING {
 public record LODClearPayload(
-	Optional</*$ rl_type */Identifier> dimension
+	Optional<Identifier> dimension
 ) implements CustomPacketPayload {
 
 	public static final Type<LODClearPayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:lod_clear"));
+		new Type<>(Identifier.parse("voxy-server:lod_clear"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, LODClearPayload> CODEC =
 		StreamCodec.of(LODClearPayload::write, LODClearPayload::read);
@@ -32,19 +28,19 @@ public record LODClearPayload(
 		return new LODClearPayload(Optional.empty());
 	}
 
-	public static LODClearPayload clearDimension(/*$ rl_type */Identifier dimension) {
+	public static LODClearPayload clearDimension(Identifier dimension) {
 		return new LODClearPayload(Optional.of(dimension));
 	}
 
 	private static void write(RegistryFriendlyByteBuf buf, LODClearPayload payload) {
 		buf.writeBoolean(payload.dimension.isPresent());
-		payload.dimension.ifPresent(buf::/*$ write_rl */writeIdentifier);
+		payload.dimension.ifPresent(buf::writeIdentifier);
 	}
 
 	private static LODClearPayload read(RegistryFriendlyByteBuf buf) {
 		boolean hasDimension = buf.readBoolean();
-		Optional</*$ rl_type */Identifier> dimension = hasDimension
-			? Optional.of(buf./*$ read_rl */readIdentifier())
+		Optional<Identifier> dimension = hasDimension
+			? Optional.of(buf.readIdentifier())
 			: Optional.empty();
 		return new LODClearPayload(dimension);
 	}

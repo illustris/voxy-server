@@ -9,11 +9,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 /**
  * C2S: Client signals it supports Merkle sync.
@@ -22,7 +18,7 @@ import net.minecraft.resources.Identifier;
 public record MerkleReadyPayload() implements CustomPacketPayload {
 
 	public static final Type<MerkleReadyPayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:merkle_ready"));
+		new Type<>(Identifier.parse("voxy-server:merkle_ready"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, MerkleReadyPayload> CODEC =
 		StreamCodec.of(

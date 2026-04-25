@@ -9,29 +9,25 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 import java.util.ArrayList;
 import java.util.List;
 
 //? if HAS_NEW_NETWORKING {
 public record LODBulkPayload(
-	/*$ rl_type */Identifier dimension,
+	Identifier dimension,
 	List<LODSectionPayload> sections
 ) implements CustomPacketPayload {
 
 	public static final Type<LODBulkPayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:lod_bulk"));
+		new Type<>(Identifier.parse("voxy-server:lod_bulk"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, LODBulkPayload> CODEC =
 		StreamCodec.of(LODBulkPayload::write, LODBulkPayload::read);
 
 	private static void write(RegistryFriendlyByteBuf buf, LODBulkPayload payload) {
-		buf./*$ write_rl */writeIdentifier(payload.dimension);
+		buf.writeIdentifier(payload.dimension);
 		buf.writeVarInt(payload.sections.size());
 		for (LODSectionPayload section : payload.sections) {
 			buf.writeLong(section.sectionKey());
@@ -62,7 +58,7 @@ public record LODBulkPayload(
 	}
 
 	private static LODBulkPayload read(RegistryFriendlyByteBuf buf) {
-		/*$ rl_type */Identifier dimension = buf./*$ read_rl */readIdentifier();
+		Identifier dimension = buf.readIdentifier();
 		int count = buf.readVarInt();
 		List<LODSectionPayload> sections = new ArrayList<>(count);
 		for (int s = 0; s < count; s++) {

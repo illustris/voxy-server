@@ -6,11 +6,7 @@ import me.cortex.voxy.server.config.VoxyServerConfig;
 import me.cortex.voxy.server.streaming.SyncService;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;*/
-//?}
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -28,7 +24,7 @@ public class ChunkVoxelizer {
 	private long currentTick;
 	private int totalVoxelized = 0;
 
-	private record PendingChunk(/*$ rl_type */Identifier dimension, int chunkX, int chunkZ) {}
+	private record PendingChunk(Identifier dimension, int chunkX, int chunkZ) {}
 
 	public ChunkVoxelizer(ServerLodEngine engine, SyncService syncService, VoxyServerConfig config) {
 		this.engine = engine;
@@ -39,7 +35,11 @@ public class ChunkVoxelizer {
 
 	public void register() {
 		if (generateOnChunkLoad) {
+			//? if HAS_RENDER_PIPELINES {
 			ServerChunkEvents.CHUNK_LOAD.register((level, chunk, isNew) -> this.onChunkLoad(level, chunk));
+			//?} else {
+			/*ServerChunkEvents.CHUNK_LOAD.register((level, chunk) -> this.onChunkLoad(level, chunk));
+			*///?}
 			ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
 			VoxyServerMod.LOGGER.info("[Voxelizer] Registered chunk load listener");
 		}
@@ -47,9 +47,9 @@ public class ChunkVoxelizer {
 
 	private void onChunkLoad(ServerLevel level, LevelChunk chunk) {
 		VoxyServerMod.debug("[Voxelizer] Chunk loaded: ({},{}) in {}",
-			chunk.getPos().x(), chunk.getPos().z(), level.dimension()./*$ rl_method */identifier());
+			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 		if (ingestChunk(level, chunk, false)) {
-			pendingChunkRetries.remove(new PendingChunk(level.dimension()./*$ rl_method */identifier(), chunk.getPos().x(), chunk.getPos().z()));
+			pendingChunkRetries.remove(new PendingChunk(level.dimension().identifier(), chunk.getPos().x(), chunk.getPos().z()));
 			return;
 		}
 		scheduleRetry(level, chunk);
@@ -75,7 +75,7 @@ public class ChunkVoxelizer {
 			);
 			if (engine.getSectionHashStore().getHash(chunkMarkerKey) != 0) {
 				VoxyServerMod.debug("[Voxelizer] Skipping already-voxelized chunk ({},{}) in {}",
-					chunk.getPos().x(), chunk.getPos().z(), level.dimension()./*$ rl_method */identifier());
+					chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 				return true; // pretend success so it's not retried
 			}
 		}
@@ -110,7 +110,7 @@ public class ChunkVoxelizer {
 	 */
 	public boolean revoxelizeChunk(ServerLevel level, LevelChunk chunk) {
 		VoxyServerMod.debug("[Voxelizer] Re-voxelizing chunk ({},{}) in {}",
-			chunk.getPos().x(), chunk.getPos().z(), level.dimension()./*$ rl_method */identifier());
+			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 		return ingestChunk(level, chunk, true);
 	}
 
@@ -123,7 +123,7 @@ public class ChunkVoxelizer {
 
 	private void scheduleRetry(ServerLevel level, LevelChunk chunk) {
 		pendingChunkRetries.put(
-			new PendingChunk(level.dimension()./*$ rl_method */identifier(), chunk.getPos().x(), chunk.getPos().z()),
+			new PendingChunk(level.dimension().identifier(), chunk.getPos().x(), chunk.getPos().z()),
 			currentTick + RETRY_INTERVAL_TICKS
 		);
 	}
@@ -150,9 +150,9 @@ public class ChunkVoxelizer {
 		}
 	}
 
-	private static ServerLevel findLevel(MinecraftServer server, /*$ rl_type */Identifier dimension) {
+	private static ServerLevel findLevel(MinecraftServer server, Identifier dimension) {
 		for (ServerLevel level : server.getAllLevels()) {
-			if (level.dimension()./*$ rl_method */identifier().equals(dimension)) return level;
+			if (level.dimension().identifier().equals(dimension)) return level;
 		}
 		return null;
 	}

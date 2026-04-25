@@ -9,11 +9,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 /**
  * S2C: Server sends configuration to client.
@@ -25,7 +21,7 @@ public record MerkleSettingsPayload(
 ) implements CustomPacketPayload {
 
 	public static final Type<MerkleSettingsPayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:merkle_settings"));
+		new Type<>(Identifier.parse("voxy-server:merkle_settings"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, MerkleSettingsPayload> CODEC =
 		StreamCodec.of(MerkleSettingsPayload::write, MerkleSettingsPayload::read);

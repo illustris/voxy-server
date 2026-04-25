@@ -132,7 +132,7 @@ public class ClientSyncHandler {
 			Minecraft.getInstance().execute(() -> {
 				ClientLevel level = Minecraft.getInstance().level;
 				if (level == null) return;
-				LODBulkPayload bulk = packet.decodeBulk(level.registryAccess());
+				LODBulkPayload bulk = packet.decodeBulk();
 				VoxyBandwidthTracker.recordSections(bulk.sections().size());
 				LOGGER.info("[ClientSync] Received {} sections from server", bulk.sections().size());
 				for (LODSectionPayload section : bulk.sections()) {
@@ -268,15 +268,24 @@ public class ClientSyncHandler {
 
 	private static long[] remapLut(int[] blockStateIds, int[] biomeIds, byte[] light,
 									Mapper mapper, ClientLevel level) {
+		//? if HAS_IDENTIFIER {
 		Registry<Biome> biomeRegistry = level.registryAccess().lookupOrThrow(Registries.BIOME);
+		//?} else {
+		/*Registry<Biome> biomeRegistry = level.registryAccess().registryOrThrow(Registries.BIOME);
+		*///?}
 		long[] remapped = new long[blockStateIds.length];
 
 		for (int i = 0; i < blockStateIds.length; i++) {
 			BlockState state = Block.BLOCK_STATE_REGISTRY.byId(blockStateIds[i]);
 			int clientBlockId = (state != null) ? mapper.getIdForBlockState(state) : 0;
 
+			//? if HAS_IDENTIFIER {
 			Optional<Holder.Reference<Biome>> biomeHolder = biomeRegistry.get(biomeIds[i]);
 			int clientBiomeId = biomeHolder.map(mapper::getIdForBiome).orElse(0);
+			//?} else {
+			/*Holder<Biome> biomeHolder = biomeRegistry.getHolder(biomeIds[i]).orElse(null);
+			int clientBiomeId = (biomeHolder != null) ? mapper.getIdForBiome(biomeHolder) : 0;
+			*///?}
 
 			remapped[i] = Mapper.composeMappingId(light[i], clientBlockId, clientBiomeId);
 		}

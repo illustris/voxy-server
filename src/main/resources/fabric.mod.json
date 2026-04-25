@@ -17,7 +17,8 @@
 		]
 	},
 	"mixins": [
-		${mixin_list}
+		"voxy-server.mixins.json",
+		"voxy-server-client.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=${loader_version}",

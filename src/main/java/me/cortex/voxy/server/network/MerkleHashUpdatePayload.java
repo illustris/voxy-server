@@ -9,30 +9,26 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 /**
  * S2C: Server sends updated L1 column hashes so client can maintain its local tree.
  */
 //? if HAS_NEW_NETWORKING {
 public record MerkleHashUpdatePayload(
-	/*$ rl_type */Identifier dimension,
+	Identifier dimension,
 	long[] columnKeys,
 	long[] columnHashes
 ) implements CustomPacketPayload {
 
 	public static final Type<MerkleHashUpdatePayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:merkle_hash_update"));
+		new Type<>(Identifier.parse("voxy-server:merkle_hash_update"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, MerkleHashUpdatePayload> CODEC =
 		StreamCodec.of(MerkleHashUpdatePayload::write, MerkleHashUpdatePayload::read);
 
 	private static void write(RegistryFriendlyByteBuf buf, MerkleHashUpdatePayload payload) {
-		buf./*$ write_rl */writeIdentifier(payload.dimension);
+		buf.writeIdentifier(payload.dimension);
 		buf.writeVarInt(payload.columnKeys.length);
 		for (int i = 0; i < payload.columnKeys.length; i++) {
 			buf.writeLong(payload.columnKeys[i]);
@@ -41,7 +37,7 @@ public record MerkleHashUpdatePayload(
 	}
 
 	private static MerkleHashUpdatePayload read(RegistryFriendlyByteBuf buf) {
-		/*$ rl_type */Identifier dimension = buf./*$ read_rl */readIdentifier();
+		Identifier dimension = buf.readIdentifier();
 		int count = buf.readVarInt();
 		long[] keys = new long[count];
 		long[] hashes = new long[count];

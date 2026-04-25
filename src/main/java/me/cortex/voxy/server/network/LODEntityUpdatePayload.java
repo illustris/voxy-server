@@ -9,11 +9,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
 import net.minecraft.network.FriendlyByteBuf;
 *///?}
-//? if HAS_IDENTIFIER {
 import net.minecraft.resources.Identifier;
-//?} else {
-/*import net.minecraft.resources.ResourceLocation;
-*///?}
 
 import java.util.UUID;
 
@@ -23,9 +19,9 @@ import java.util.UUID;
  */
 //? if HAS_NEW_NETWORKING {
 public record LODEntityUpdatePayload(
-	/*$ rl_type */Identifier dimension,
+	Identifier dimension,
 	int[] entityIds,
-	/*$ rl_type */Identifier[] entityTypes,
+	Identifier[] entityTypes,
 	int[] blockX,
 	int[] blockY,
 	int[] blockZ,
@@ -37,7 +33,7 @@ public record LODEntityUpdatePayload(
 ) implements CustomPacketPayload {
 
 	public static final Type<LODEntityUpdatePayload> TYPE =
-		new Type<>(/*$ rl_parse */Identifier.parse("voxy-server:lod_entity_update"));
+		new Type<>(Identifier.parse("voxy-server:lod_entity_update"));
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, LODEntityUpdatePayload> CODEC =
 		StreamCodec.of(LODEntityUpdatePayload::write, LODEntityUpdatePayload::read);
@@ -51,7 +47,7 @@ public record LODEntityUpdatePayload(
 	}
 
 	private static void write(RegistryFriendlyByteBuf buf, LODEntityUpdatePayload payload) {
-		buf./*$ write_rl */writeIdentifier(payload.dimension);
+		buf.writeIdentifier(payload.dimension);
 		int count = payload.entityIds.length;
 		buf.writeVarInt(count);
 
@@ -59,9 +55,9 @@ public record LODEntityUpdatePayload(
 
 		// Build and write entity type LUT
 		// Collect unique types preserving first-seen order
-		java.util.List</*$ rl_type */Identifier> lut = new java.util.ArrayList<>();
-		java.util.Map</*$ rl_type */Identifier, Integer> lutIndex = new java.util.HashMap<>();
-		for (/*$ rl_type */Identifier type : payload.entityTypes) {
+		java.util.List<Identifier> lut = new java.util.ArrayList<>();
+		java.util.Map<Identifier, Integer> lutIndex = new java.util.HashMap<>();
+		for (Identifier type : payload.entityTypes) {
 			if (!lutIndex.containsKey(type)) {
 				lutIndex.put(type, lut.size());
 				lut.add(type);
@@ -69,8 +65,8 @@ public record LODEntityUpdatePayload(
 		}
 
 		buf.writeVarInt(lut.size());
-		for (/*$ rl_type */Identifier type : lut) {
-			buf./*$ write_rl */writeIdentifier(type);
+		for (Identifier type : lut) {
+			buf.writeIdentifier(type);
 		}
 
 		// Write per-entity data
@@ -89,25 +85,25 @@ public record LODEntityUpdatePayload(
 	}
 
 	private static LODEntityUpdatePayload read(RegistryFriendlyByteBuf buf) {
-		/*$ rl_type */Identifier dimension = buf./*$ read_rl */readIdentifier();
+		Identifier dimension = buf.readIdentifier();
 		int count = buf.readVarInt();
 
 		if (count == 0) {
 			return new LODEntityUpdatePayload(dimension,
-				new int[0], new /*$ rl_type */Identifier[0], new int[0], new int[0], new int[0],
+				new int[0], new Identifier[0], new int[0], new int[0], new int[0],
 				new byte[0], new byte[0], new byte[0], new long[0], new long[0]);
 		}
 
 		// Read entity type LUT
 		int lutSize = buf.readVarInt();
-		/*$ rl_type */Identifier[] lut = new /*$ rl_type */Identifier[lutSize];
+		Identifier[] lut = new Identifier[lutSize];
 		for (int i = 0; i < lutSize; i++) {
-			lut[i] = buf./*$ read_rl */readIdentifier();
+			lut[i] = buf.readIdentifier();
 		}
 
 		// Read per-entity data
 		int[] entityIds = new int[count];
-		/*$ rl_type */Identifier[] entityTypes = new /*$ rl_type */Identifier[count];
+		Identifier[] entityTypes = new Identifier[count];
 		int[] blockX = new int[count];
 		int[] blockY = new int[count];
 		int[] blockZ = new int[count];
