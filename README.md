@@ -12,11 +12,11 @@ Server-side LoD synchronization for [Voxy](https://modrinth.com/mod/voxy). Gener
 
 ## Requirements
 
-- Minecraft 26.1.1
-- Fabric Loader 0.18.6+
-- Fabric API 0.145.3+26.1.1
-- [Voxy](https://modrinth.com/mod/voxy) 0.2.15-beta
-- Java 25+
+- Minecraft 26.1.2 (also targets 1.21.11, 1.21.1, 1.20.1)
+- Fabric Loader 0.18.6+ (older targets use loader matching their MC)
+- Fabric API 0.147.0+26.1.2
+- [Voxy](https://modrinth.com/mod/voxy) 0.2.15-beta on 26.1+/1.21.11; 0.2.14-alpha m3t4f1v3 backport on 1.21.1/1.20.1
+- Java 25+ (Java 21 for 1.21.x, Java 17 for 1.20.1)
 
 Clients also need [Sodium](https://modrinth.com/mod/sodium) 0.8.9 (required by Voxy).
 
@@ -28,7 +28,7 @@ Drop these into the server's `mods/` folder:
 
 - `voxy-server-0.1.0.jar` (this mod)
 - `voxy-0.2.15-beta.jar` (Voxy)
-- `fabric-api-0.145.3+26.1.1.jar` (Fabric API)
+- `fabric-api-0.147.0+26.1.2.jar` (Fabric API)
 
 No Sodium needed on the server.
 

@@ -20,8 +20,13 @@ public abstract class LevelChunkMixin {
 	@Final
 	Level level;
 
+	//? if SETBLOCKSTATE_INT_FLAGS {
 	@Inject(method = "setBlockState", at = @At("RETURN"))
 	private void onSetBlockState(BlockPos pos, BlockState state, int flags, CallbackInfoReturnable<BlockState> cir) {
+	//?} else {
+	/*@Inject(method = "setBlockState", at = @At("RETURN"))
+	private void onSetBlockState(BlockPos pos, BlockState state, boolean moved, CallbackInfoReturnable<BlockState> cir) {
+	*///?}
 		if (cir.getReturnValue() != null && this.level instanceof ServerLevel serverLevel) {
 			// Only track block changes in fully loaded chunks (not during worldgen).
 			// During chunk generation, setBlockState fires for every placed block

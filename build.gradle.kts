@@ -1,3 +1,5 @@
+import java.util.zip.ZipFile
+
 plugins {
 	id("dev.kikugie.stonecutter")
 }
@@ -38,6 +40,18 @@ val voxyJar = rootProject.file("libs/voxy-${mcVersion}.jar").let {
 	if (it.exists()) it else rootProject.file("libs/voxy.jar")
 }
 
+// Detect whether the voxy jar is intermediary-mapped (Modrinth distribution
+// format) or already in production names. Intermediary jars must go through
+// Loom remapping; production-name jars cannot. The access widener header is
+// the most reliable signal.
+val voxyIsIntermediary: Boolean = ZipFile(voxyJar).use { zip ->
+	val awEntry = zip.entries().toList().firstOrNull { it.name.endsWith(".accesswidener") }
+	if (awEntry == null) false else {
+		val header = zip.getInputStream(awEntry).bufferedReader().use { it.readLine() ?: "" }
+		header.split("\t").getOrNull(2) == "intermediary"
+	}
+}
+
 dependencies {
 	if (deobfuscated) {
 		// Deobfuscated MC: no mappings, no mod-specific configurations
@@ -52,7 +66,11 @@ dependencies {
 		add("modImplementation", "net.fabricmc.fabric-api:fabric-api:${property("deps.fabric_api")}")
 	}
 
-	add("implementation", files(voxyJar))
+	if (voxyIsIntermediary) {
+		add("modImplementation", files(voxyJar))
+	} else {
+		add("implementation", files(voxyJar))
+	}
 
 	// LWJGL core for dedicated servers (MC only bundles it for clients).
 	val lwjgl = property("mod.lwjgl_version").toString()

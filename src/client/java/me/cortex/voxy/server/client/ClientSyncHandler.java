@@ -292,7 +292,7 @@ public class ClientSyncHandler {
 
 	private static long[] remapLut(int[] blockStateIds, int[] biomeIds, byte[] light,
 									Mapper mapper, ClientLevel level) {
-		//? if HAS_IDENTIFIER {
+		//? if HAS_LOOKUP_OR_THROW {
 		Registry<Biome> biomeRegistry = level.registryAccess().lookupOrThrow(Registries.BIOME);
 		//?} else {
 		/*Registry<Biome> biomeRegistry = level.registryAccess().registryOrThrow(Registries.BIOME);
@@ -303,7 +303,7 @@ public class ClientSyncHandler {
 			BlockState state = Block.BLOCK_STATE_REGISTRY.byId(blockStateIds[i]);
 			int clientBlockId = (state != null) ? mapper.getIdForBlockState(state) : 0;
 
-			//? if HAS_IDENTIFIER {
+			//? if HAS_LOOKUP_OR_THROW {
 			Optional<Holder.Reference<Biome>> biomeHolder = biomeRegistry.get(biomeIds[i]);
 			int clientBiomeId = biomeHolder.map(mapper::getIdForBiome).orElse(0);
 			//?} else {

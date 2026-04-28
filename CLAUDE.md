@@ -97,7 +97,7 @@ Voxelization is non-deterministic (depends on lighting/neighbor state). To preve
 
 ## Testing
 
-Set up a Fabric 0.18.6 server for MC 26.1.1 and place the built jar plus Voxy and Fabric API in the `mods/` folder. Then:
+Set up a Fabric 0.18.6 server for MC 26.1.2 and place the built jar plus Voxy and Fabric API in the `mods/` folder. Then:
 
 ```sh
 # Start the server (requires Java 25)

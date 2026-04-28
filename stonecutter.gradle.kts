@@ -5,7 +5,7 @@ plugins {
 	id("net.fabricmc.fabric-loom") version "1.15-SNAPSHOT" apply false
 }
 
-stonecutter active "26.1.1"
+stonecutter active "26.1.2"
 
 stonecutter parameters {
 	// Identifier was called ResourceLocation in Mojang mappings before ~1.21.2.
@@ -36,8 +36,9 @@ stonecutter parameters {
 		string(current.parsed < "26.1") {
 			replace("ClientCommands", "ClientCommandManager")
 		}
-		// Level height methods were renamed between 1.21.1 and 1.21.11
-		string(current.parsed < "1.21.11") {
+		// Level height methods were renamed in 1.21.5
+		// (getMinBuildHeight -> getMinY, getMinSection -> getMinSectionY, etc).
+		string(current.parsed < "1.21.5") {
 			replace("getMinY()", "getMinBuildHeight()")
 			replace("getMaxY()", "getMaxBuildHeight()")
 			replace("getMinSectionY()", "getMinSection()")
@@ -55,11 +56,13 @@ stonecutter parameters {
 	val mc = current.parsed
 	constants["HAS_NEW_NETWORKING"]   = mc >= "1.20.5"    // CustomPacketPayload + StreamCodec + PayloadTypeRegistry
 	constants["HAS_IDENTIFIER"]       = mc >= "1.21.11"   // Identifier vs ResourceLocation
+	constants["HAS_LOOKUP_OR_THROW"]  = mc >= "1.21.5"    // RegistryAccess.lookupOrThrow + Registry.get(int) (renamed in 1.21.5)
 	constants["HAS_DEBUG_SCREEN"]     = mc >= "1.21.11"   // DebugScreenEntries F3 API (conservative)
 	constants["HAS_RENDER_PIPELINES"] = mc >= "26.1"      // New RenderPipelines / SubmitNodeCollector API
 	constants["HAS_PERMISSIONS"]      = mc >= "1.21.11"   // Permissions.COMMANDS_ADMIN
 	constants["HAS_FULL_CHUNK_IS_OR_AFTER"] = mc >= "1.20.5" // FullChunkStatus.isOrAfter
-	constants["MC_1_20_1"]            = mc < "1.20.5"     // True only for 1.20.1
+	constants["SETBLOCKSTATE_INT_FLAGS"] = mc >= "1.21.4" // LevelChunk.setBlockState third arg: int flags vs boolean moved
+	constants["MC_1_20_1"]            = mc < "1.20.5"     // Pre-1.20.5 ChunkStatus package
 	constants["DEOBFUSCATED"]         = mc >= "26.1"       // MC ships deobfuscated (no remapping)
 
 	swaps["mod_version"] = "\"${property("mod.version")}\";"
