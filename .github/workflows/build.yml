@@ -43,7 +43,7 @@ jobs:
           cp build/libs/voxy-*.jar "$GITHUB_WORKSPACE/libs/voxy.jar"
 
       - name: Build all versions
-        run: ./gradlew :26.1.1:build :1.21.11:build :1.21.1:build :1.20.1:build
+        run: ./gradlew :26.1.2:build :1.21.11:build :1.21.1:build :1.20.1:build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -71,13 +71,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            versions/26.1.1/gradle.properties
+            versions/26.1.2/gradle.properties
           sparse-checkout-cone-mode: false
 
       - name: Read Fabric API version
         id: versions
         run: |
-          fabric_version=$(grep '^deps.fabric_api=' versions/26.1.1/gradle.properties | cut -d= -f2)
+          fabric_version=$(grep '^deps.fabric_api=' versions/26.1.2/gradle.properties | cut -d= -f2)
           echo "fabric_version=$fabric_version" >> "$GITHUB_OUTPUT"
 
       - name: Download voxy-server artifact
@@ -130,8 +130,8 @@ jobs:
 
           SCP_OPTS="-o StrictHostKeyChecking=no -i ~/.ssh/deploy_key -P $SSH_PORT"
 
-          # Deploy the 26.1.1 jar to staging (exclude -sources.jar)
-          MOD_JAR=$(find artifacts/ -name 'voxy-server-26.1.1-*.jar' ! -name '*-sources.jar' | head -1)
+          # Deploy the 26.1.2 jar to staging (exclude -sources.jar)
+          MOD_JAR=$(find artifacts/ -name 'voxy-server-26.1.2-*.jar' ! -name '*-sources.jar' | head -1)
 
           # Stop server gracefully
           ssh $SSH_OPTS "$SERVER" "sudo /run/current-system/sw/bin/systemctl stop voxy-server" || true
