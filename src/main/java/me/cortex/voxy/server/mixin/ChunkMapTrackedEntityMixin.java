@@ -34,8 +34,7 @@ public abstract class ChunkMapTrackedEntityMixin {
 		if (player == (Object) this.entity) return;
 
 		EntitySyncService service = VoxyServerMod.getEntitySyncService();
-		if (service == null || !service.isNativeMode()) return;
-
+		if (service == null) return;
 		if (!service.shouldForceTrack(player.getUUID(), this.entity.getId())) return;
 
 		// Entity is in the force-track set: ensure it's paired with this player.

@@ -14,8 +14,7 @@ public class DirtyScanService {
 	private final ServerLodEngine engine;
 	private final ChunkVoxelizer voxelizer;
 	private final SyncService syncService;
-	private final int scanInterval;
-	private final int maxPerScan;
+	private final VoxyServerConfig config;
 	private int tickCounter = 0;
 
 	public DirtyScanService(ServerLodEngine engine, ChunkVoxelizer voxelizer,
@@ -23,17 +22,17 @@ public class DirtyScanService {
 		this.engine = engine;
 		this.voxelizer = voxelizer;
 		this.syncService = syncService;
-		this.scanInterval = config.dirtyScanInterval;
-		this.maxPerScan = config.maxDirtyChunksPerScan;
-		VoxyServerMod.LOGGER.info("[DirtyScan] Initialized with interval={} ticks, maxPerScan={}", scanInterval, maxPerScan);
+		this.config = config;
+		VoxyServerMod.LOGGER.info("[DirtyScan] Initialized with interval={} ticks, maxPerScan={}",
+			config.dirtyScanInterval, config.maxDirtyChunksPerScan);
 	}
 
 	public void tick(MinecraftServer server) {
-		if (++tickCounter < scanInterval) return;
+		if (++tickCounter < config.dirtyScanInterval) return;
 		tickCounter = 0;
 
 		ChunkTimestampStore store = engine.getChunkTimestampStore();
-		List<ChunkPos> dirtyChunks = store.findDirtyChunks(maxPerScan);
+		List<ChunkPos> dirtyChunks = store.findDirtyChunks(config.maxDirtyChunksPerScan);
 
 		if (!dirtyChunks.isEmpty()) {
 			VoxyServerMod.debug("[DirtyScan] Found {} dirty chunks", dirtyChunks.size());

@@ -1,14 +1,16 @@
 package me.cortex.voxy.server.streaming;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrays;
+import it.unimi.dsi.fastutil.longs.LongComparator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.server.merkle.PlayerMerkleTree;
 import me.cortex.voxy.server.merkle.SectionHashStore;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 
-import java.util.ArrayDeque;
 import java.util.List;
-import java.util.Queue;
 import java.util.UUID;
 
 /**
@@ -34,15 +36,22 @@ public class PlayerSyncSession {
 	private volatile int currentSectionX;
 	private volatile int currentSectionZ;
 
-	// Queue of section keys to send to this player
-	private final Queue<Long> sendQueue = new ArrayDeque<>();
+	// Pending section keys to send to this player. NOT FIFO -- pollBatch sorts
+	// by distance to the player's current section before draining the closest N,
+	// so a player who moves while the queue is large always gets nearest-first
+	// LOD updates relative to their CURRENT location (not where they were when
+	// each section got queued).
+	private final LongArrayList sendQueue = new LongArrayList();
+	private final LongOpenHashSet sendQueueDedup = new LongOpenHashSet();
 
 	// Set of section keys already sent
 	private final LongOpenHashSet sentSections = new LongOpenHashSet();
 
-	// Column keys (packed as MerkleHashUtil.packColumnKey) currently being generated.
-	// Prevents re-scheduling the same section across successive Merkle rounds.
+	// Column keys (packed as MerkleHashUtil.packColumnKey) currently in-flight
+	// for generation. Prevents re-scheduling the same column across successive
+	// dispatcher ticks (getNearestEmptyColumns excludes these).
 	private final LongOpenHashSet pendingGeneration = new LongOpenHashSet();
+	private final Object generationLock = new Object();
 
 	public PlayerSyncSession(ServerPlayer player) {
 		this.playerId = player.getUUID();
@@ -114,29 +123,50 @@ public class PlayerSyncSession {
 	public void reset() {
 		this.tree = null;
 		this.sendQueue.clear();
+		this.sendQueueDedup.clear();
 		this.sentSections.clear();
-		this.pendingGeneration.clear();
+		synchronized (generationLock) {
+			pendingGeneration.clear();
+		}
 		this.state = State.AWAITING_READY;
 	}
 
-	public boolean isGenerationPending(long columnKey) {
-		return pendingGeneration.contains(columnKey);
-	}
-
-	public void markGenerationStarted(long columnKey) {
-		pendingGeneration.add(columnKey);
-	}
-
 	public void clearPendingGeneration() {
-		pendingGeneration.clear();
+		synchronized (generationLock) {
+			pendingGeneration.clear();
+		}
 	}
 
 	/**
-	 * Enqueue section keys for sending.
+	 * Snapshot of in-flight generation column keys. Caller-owned copy so the
+	 * caller can iterate without holding the session lock.
 	 */
-	public void enqueueSections(List<Long> sectionKeys) {
+	public LongOpenHashSet getPendingGenerationKeys() {
+		synchronized (generationLock) {
+			return new LongOpenHashSet(pendingGeneration);
+		}
+	}
+
+	public void markGenerationStarted(long columnKey) {
+		synchronized (generationLock) {
+			pendingGeneration.add(columnKey);
+		}
+	}
+
+	public void markGenerationFinished(long columnKey) {
+		synchronized (generationLock) {
+			pendingGeneration.remove(columnKey);
+		}
+	}
+
+	/**
+	 * Enqueue section keys for sending. Skips sections already sent (sync path
+	 * never re-sends; dirty path uses {@link #enqueueSection(long)} which does).
+	 */
+	public synchronized void enqueueSections(List<Long> sectionKeys) {
 		for (long key : sectionKeys) {
-			if (!sentSections.contains(key)) {
+			if (sentSections.contains(key)) continue;
+			if (sendQueueDedup.add(key)) {
 				sendQueue.add(key);
 			}
 		}
@@ -145,35 +175,61 @@ public class PlayerSyncSession {
 	/**
 	 * Enqueue a single section for sending (e.g., from dirty push).
 	 * Does NOT check sentSections -- dirty updates should always be re-sent.
+	 * Dedup against pending: if it's already queued, no-op.
 	 */
-	public void enqueueSection(long sectionKey) {
-		sendQueue.add(sectionKey);
+	public synchronized void enqueueSection(long sectionKey) {
+		if (sendQueueDedup.add(sectionKey)) {
+			sendQueue.add(sectionKey);
+		}
 	}
 
 	/**
-	 * Poll the next batch of section keys to send.
+	 * Sort the pending send-queue by squared distance from the player's current
+	 * section, then return the closest {@code maxSize} sections. The remainder
+	 * stays in the queue (sorted, but each subsequent call re-sorts in case the
+	 * player has moved). This guarantees nearest-first LOD delivery even when
+	 * the queue holds many sections accumulated over time.
 	 */
-	public long[] pollBatch(int maxSize) {
-		int size = Math.min(maxSize, sendQueue.size());
+	public synchronized long[] pollBatch(int maxSize, int playerSectionX, int playerSectionZ) {
+		int size = sendQueue.size();
 		if (size == 0) return null;
-		long[] batch = new long[size];
-		for (int i = 0; i < size; i++) {
-			long key = sendQueue.poll();
-			batch[i] = key;
-			sentSections.add(key);
+
+		final long psx = playerSectionX;
+		final long psz = playerSectionZ;
+		LongComparator byDist = (a, b) -> {
+			long ax = WorldEngine.getX(a), az = WorldEngine.getZ(a);
+			long bx = WorldEngine.getX(b), bz = WorldEngine.getZ(b);
+			long adx = ax - psx, adz = az - psz;
+			long bdx = bx - psx, bdz = bz - psz;
+			return Long.compare(adx * adx + adz * adz, bdx * bdx + bdz * bdz);
+		};
+		long[] backing = sendQueue.elements();
+		LongArrays.quickSort(backing, 0, size, byDist);
+
+		int batchSize = Math.min(maxSize, size);
+		long[] batch = new long[batchSize];
+		System.arraycopy(backing, 0, batch, 0, batchSize);
+		// Remove the dispatched portion from the front of the queue.
+		// (Keep the remainder in sorted order; next call resorts anyway.)
+		sendQueue.removeElements(0, batchSize);
+		for (int i = 0; i < batchSize; i++) {
+			sendQueueDedup.remove(batch[i]);
+			sentSections.add(batch[i]);
 		}
 		return batch;
 	}
 
-	public boolean hasPendingSections() {
+	public synchronized boolean hasPendingSections() {
 		return !sendQueue.isEmpty();
 	}
 
-	public int getSendQueueSize() {
+	public synchronized int getSendQueueSize() {
 		return sendQueue.size();
 	}
 
 	public int getPendingGenerationCount() {
-		return pendingGeneration.size();
+		synchronized (generationLock) {
+			return pendingGeneration.size();
+		}
 	}
 }

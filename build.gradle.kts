@@ -115,12 +115,16 @@ tasks {
 		filesMatching("voxy-server-client.mixins.json") { expand(props) }
 
 		// For versions without DebugScreenEntries, overwrite the client mixin
-		// config with an empty one (no client mixins, but the file must exist
-		// since fabric.mod.json references it).
+		// config with one that drops the DebugScreenEntriesAccessor mixin (which
+		// targets a class that only exists on MC 1.21.11+) but keeps the rest
+		// (e.g. the Sable compat mixin, which is gated on the Sable mod being
+		// loaded at runtime, not on MC version).
 		if (!hasDebugScreen) {
 			doLast {
 				val f = destinationDir.resolve("voxy-server-client.mixins.json")
-				f.writeText("""{"required":true,"package":"me.cortex.voxy.server.mixin","compatibilityLevel":"JAVA_${javaTarget}","injectors":{"defaultRequire":1}}""")
+				f.writeText(
+					"""{"required":true,"package":"me.cortex.voxy.server.mixin","compatibilityLevel":"JAVA_${javaTarget}","client":["client.GameRendererMixin","client.compat.sable.SubLevelRenderSectionManagerMixin"],"injectors":{"defaultRequire":1}}"""
+				)
 			}
 		}
 	}

@@ -1,12 +1,10 @@
 package me.cortex.voxy.server.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import com.mojang.brigadier.arguments.StringArgumentType;
 //? if HAS_DEBUG_SCREEN {
 import me.cortex.voxy.server.mixin.client.DebugScreenEntriesAccessor;
 //?}
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 //? if HAS_RENDER_PIPELINES {
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
@@ -17,17 +15,24 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 //? if HAS_SUBMIT_NODE_COLLECTOR && !HAS_RENDER_PIPELINES {
 /*import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 *///?}
+//? if HAS_NEW_NETWORKING && !HAS_SUBMIT_NODE_COLLECTOR {
+/*import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
+*///?}
 import net.minecraft.client.KeyMapping;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.lwjgl.glfw.GLFW;
 
-import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
-import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal;
-
+/**
+ * Client entry point. Server-side commands live under {@code /voxysv ...}.
+ * Client-side toggles are bound to keys (no client commands), to keep the
+ * UX unified and avoid client-command interception of chat input.
+ *
+ * Keybinds (all under category MISC):
+ * - B: toggle the LOD radius border outline (only when MC >= 26.1)
+ * - H: toggle per-section LOD update highlights
+ */
 public class VoxyServerClient implements ClientModInitializer {
-
-	private static VoxyServerClientConfig clientConfig;
 
 	@Override
 	public void onInitializeClient() {
@@ -41,12 +46,8 @@ public class VoxyServerClient implements ClientModInitializer {
 		);
 		//?}
 
-		clientConfig = VoxyServerClientConfig.load();
-
-		//? if HAS_SUBMIT_NODE_COLLECTOR {
-		LODEntityRenderer entityRenderer = new LODEntityRenderer(
-			ClientSyncHandler.getLODEntityManager(), clientConfig
-		);
+		//? if HAS_NEW_NETWORKING {
+		LODEntityRenderer entityRenderer = new LODEntityRenderer();
 		//? if HAS_RENDER_PIPELINES {
 		// Must use COLLECT_SUBMITS so entity render nodes are submitted before
 		// renderSolidFeatures() processes them. AFTER_SOLID_FEATURES is too late --
@@ -56,7 +57,9 @@ public class VoxyServerClient implements ClientModInitializer {
 		//?} else {
 		/*// Pre-26.1: vanilla draws entities during the world-render phase,
 		// so we register against AFTER_ENTITIES which fires after vanilla
-		// has drawn its entities -- equivalent injection point.
+		// has drawn its entities -- equivalent injection point. Same call
+		// site for both 1.21.11 (.world.WorldRenderEvents) and 1.21.1
+		// (.v1.WorldRenderEvents); the import gate above selects the right one.
 		WorldRenderEvents.AFTER_ENTITIES.register(entityRenderer::render);
 		*///?}
 		//?}
@@ -66,99 +69,61 @@ public class VoxyServerClient implements ClientModInitializer {
 		LevelRenderEvents.COLLECT_SUBMITS.register(debugRenderer::render);
 		//?}
 
-		// Keybind to toggle LOD border visualization
-		//? if HAS_IDENTIFIER {
-		KeyMapping borderKey = new KeyMapping(
-			"key.voxy-server.toggle_border",
-			InputConstants.Type.KEYSYM,
-			GLFW.GLFW_KEY_B,
-			KeyMapping.Category.MISC
-		);
-		//?} else {
-		/*KeyMapping borderKey = new KeyMapping(
-			"key.voxy-server.toggle_border",
-			InputConstants.Type.KEYSYM,
-			GLFW.GLFW_KEY_B,
-			"category.voxy-server"
-		);
-		*///?}
-		//? if HAS_RENDER_PIPELINES {
-		KeyMappingHelper.registerKeyMapping(borderKey);
-		//?} else {
-		/*KeyBindingHelper.registerKeyBinding(borderKey);
-		*///?}
+		registerKeybinds();
+	}
+
+	private static void registerKeybinds() {
+		KeyMapping borderKey = makeKeybind("toggle_border", GLFW.GLFW_KEY_B);
+		KeyMapping highlightKey = makeKeybind("toggle_highlights", GLFW.GLFW_KEY_H);
+		register(borderKey);
+		register(highlightKey);
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			while (borderKey.consumeClick()) {
 				VoxyDebugRenderer.toggleBorder();
-				if (client.player != null) {
-					//? if HAS_RENDER_PIPELINES {
-					client.player.sendOverlayMessage(
-						Component.literal("[Voxy] LOD border " +
-							(VoxyDebugRenderer.isBorderEnabled() ? "shown" : "hidden"))
-					);
-					//?} else {
-					/*client.player.displayClientMessage(
-						Component.literal("[Voxy] LOD border " +
-							(VoxyDebugRenderer.isBorderEnabled() ? "shown" : "hidden")),
-						true
-					);
-					*///?}
-				}
+				notify(client, "[Voxy] LOD border " +
+					(VoxyDebugRenderer.isBorderEnabled() ? "shown" : "hidden"));
+			}
+			while (highlightKey.consumeClick()) {
+				LODSectionHighlightTracker.toggle();
+				notify(client, "[Voxy] Section highlights " +
+					(LODSectionHighlightTracker.isEnabled() ? "enabled" : "disabled"));
 			}
 		});
-
-		registerCommands();
 	}
 
-	private void registerCommands() {
-		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
-			dispatcher.register(literal("voxyentity")
-				.then(literal("mode")
-					.then(argument("mode", StringArgumentType.word())
-						.suggests((ctx, builder) -> {
-							builder.suggest("billboard");
-							builder.suggest("model");
-							return builder.buildFuture();
-						})
-						.executes(ctx -> {
-							String mode = StringArgumentType.getString(ctx, "mode");
-							if (!"billboard".equals(mode) && !"model".equals(mode)) {
-								ctx.getSource().sendError(Component.literal("Invalid mode: " + mode + ". Use 'billboard' or 'model'."));
-								return 0;
-							}
-							clientConfig.entityRenderMode = mode;
-							clientConfig.save();
-							ctx.getSource().sendFeedback(Component.literal("Entity render mode set to: " + mode));
-							return 1;
-						}))
-					.executes(ctx -> {
-						ctx.getSource().sendFeedback(Component.literal("Current entity render mode: " + clientConfig.entityRenderMode));
-						return 1;
-					}))
-				.then(literal("debug")
-					.executes(ctx -> {
-						clientConfig.debugLogging = !clientConfig.debugLogging;
-						clientConfig.save();
-						ctx.getSource().sendFeedback(Component.literal("Debug logging " + (clientConfig.debugLogging ? "enabled" : "disabled")));
-						return 1;
-					})));
+	private static KeyMapping makeKeybind(String id, int defaultKey) {
+		//? if HAS_IDENTIFIER {
+		return new KeyMapping(
+			"key.voxy-server." + id,
+			InputConstants.Type.KEYSYM,
+			defaultKey,
+			KeyMapping.Category.MISC
+		);
+		//?} else {
+		/*return new KeyMapping(
+			"key.voxy-server." + id,
+			InputConstants.Type.KEYSYM,
+			defaultKey,
+			"category.voxy-server"
+		);
+		*///?}
+	}
 
-			dispatcher.register(literal("voxyhighlight")
-				.executes(ctx -> {
-					LODSectionHighlightTracker.toggle();
-					ctx.getSource().sendFeedback(Component.literal(
-						"[Voxy] Section highlighting " +
-						(LODSectionHighlightTracker.isEnabled() ? "enabled" : "disabled")
-					));
-					return 1;
-				})
-				.then(literal("clear")
-					.executes(ctx -> {
-						LODSectionHighlightTracker.clear();
-						ctx.getSource().sendFeedback(Component.literal("[Voxy] Cleared section highlights"));
-						return 1;
-					})));
-		});
+	private static void register(KeyMapping key) {
+		//? if HAS_RENDER_PIPELINES {
+		KeyMappingHelper.registerKeyMapping(key);
+		//?} else {
+		/*KeyBindingHelper.registerKeyBinding(key);
+		*///?}
+	}
+
+	private static void notify(net.minecraft.client.Minecraft client, String message) {
+		if (client.player == null) return;
+		//? if HAS_RENDER_PIPELINES {
+		client.player.sendOverlayMessage(Component.literal(message));
+		//?} else {
+		/*client.player.displayClientMessage(Component.literal(message), true);
+		*///?}
 	}
 }

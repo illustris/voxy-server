@@ -16,8 +16,6 @@ public class VoxyServerNetworking {
 		PayloadTypeRegistry.clientboundPlay().register(MerkleSettingsPayload.TYPE, MerkleSettingsPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(MerkleL2HashesPayload.TYPE, MerkleL2HashesPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(MerkleHashUpdatePayload.TYPE, MerkleHashUpdatePayload.CODEC);
-		PayloadTypeRegistry.clientboundPlay().register(LODEntityUpdatePayload.TYPE, LODEntityUpdatePayload.CODEC);
-		PayloadTypeRegistry.clientboundPlay().register(LODEntityRemovePayload.TYPE, LODEntityRemovePayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(SyncStatusPayload.TYPE, SyncStatusPayload.CODEC);
 
 		// C2S payloads

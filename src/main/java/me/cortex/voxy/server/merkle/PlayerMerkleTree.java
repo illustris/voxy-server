@@ -38,6 +38,19 @@ public class PlayerMerkleTree {
 	// Index: regionKey -> list of columnKeys in that region
 	private final Long2ObjectOpenHashMap<LongArrayList> regionToColumns = new Long2ObjectOpenHashMap<>();
 
+	// Columns where ALL 4 chunks have voxelization markers in the section hash
+	// store, regardless of whether their L0 hashes have been computed yet. We
+	// treat these as "covered" so getNearestEmptyColumns skips them; otherwise
+	// the dispatcher loops over columns whose chunks were just voxelized via
+	// vanilla loading but whose L0 hashes haven't reached the store via the
+	// 20-tick dirty-section debounce.
+	private final it.unimi.dsi.fastutil.longs.LongOpenHashSet markedFullColumns =
+		new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+	// Per-column marker count for live updates (chunks marker'd since tree build).
+	// When count for a column reaches 4 the column moves to markedFullColumns.
+	private final it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap markerCounts =
+		new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap();
+
 	// Bounds
 	private final int centerX, centerZ, radius;
 
@@ -74,6 +87,27 @@ public class PlayerMerkleTree {
 			long colKey = MerkleHashUtil.packColumnKey(x, z);
 			tree.columnToSections.computeIfAbsent(colKey, k -> new LongArrayList()).add(sectionKey.longValue());
 		});
+
+		// Count voxelization markers per WorldSection-column. Each column maps
+		// to a 2x2 chunk grid; we mark a column "covered" only when all 4
+		// chunks have markers. This matches getMissingChunksForSection's logic
+		// so the dispatcher won't redundantly try them.
+		it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap markerCount =
+			new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap();
+		store.iterateMarkersInBounds(minX, maxX, minZ, maxZ, (chunkX, chunkZ) -> {
+			int sx = chunkX >> 1;
+			int sz = chunkZ >> 1;
+			long colKey = MerkleHashUtil.packColumnKey(sx, sz);
+			markerCount.addTo(colKey, 1);
+			return 0;
+		});
+		for (var e : markerCount.long2IntEntrySet()) {
+			if (e.getIntValue() >= 4) {
+				tree.markedFullColumns.add(e.getLongKey());
+			} else {
+				tree.markerCounts.put(e.getLongKey(), e.getIntValue());
+			}
+		}
 
 		// Dense L1: iterate the full XZ grid. Columns with no L0 entries get hash 0.
 		for (int x = minX; x <= maxX; x++) {
@@ -236,6 +270,87 @@ public class PlayerMerkleTree {
 		}
 
 		return new MerkleDiffResult(sectionsToSync, columnsToGenerate);
+	}
+
+	/**
+	 * Columns inside the tree's radius whose L1 hash is 0 -- the server has no L0 data
+	 * for any section in that column. Candidates for chunk generation.
+	 * Returned as [sectionX, sectionZ] pairs to match MerkleDiffResult.columnsToGenerate.
+	 */
+	/**
+	 * Count of columns inside the tree's radius that need generation:
+	 * L1 hash is 0 (no server data) AND not marked as fully voxelized.
+	 */
+	public int getEmptyColumnCount() {
+		int n = 0;
+		for (var entry : l1Hashes.long2LongEntrySet()) {
+			if (entry.getLongValue() != 0) continue;
+			if (markedFullColumns.contains(entry.getLongKey())) continue;
+			n++;
+		}
+		return n;
+	}
+
+	/**
+	 * Notify the tree that a chunk marker was just written. Tracks per-column
+	 * marker count; when a column reaches 4 it's added to markedFullColumns
+	 * and getNearestEmptyColumns will skip it from then on.
+	 */
+	public void notifyChunkMarkerSet(int chunkX, int chunkZ) {
+		int sx = chunkX >> 1;
+		int sz = chunkZ >> 1;
+		long colKey = MerkleHashUtil.packColumnKey(sx, sz);
+		if (markedFullColumns.contains(colKey)) return;
+		int newCount = markerCounts.addTo(colKey, 1) + 1;
+		if (newCount >= 4) {
+			markedFullColumns.add(colKey);
+			markerCounts.remove(colKey);
+		}
+	}
+
+	/**
+	 * Returns at most `limit` empty columns (l1Hash=0, not marked fully voxelized,
+	 * not in `exclude`), sorted by squared distance to (centerX, centerZ).
+	 *
+	 * Used by SyncService.dispatchGeneration to find the nearest unscheduled
+	 * empty columns to the player's CURRENT section -- so generation tracks
+	 * player movement, not where they were when the tree was first built.
+	 */
+	public List<long[]> getNearestEmptyColumns(int centerX, int centerZ, int limit,
+			it.unimi.dsi.fastutil.longs.LongOpenHashSet exclude) {
+		if (limit <= 0) return java.util.Collections.emptyList();
+		// Bounded min-heap keyed by squared distance. Walk all empties, push into heap,
+		// pop the worst when over `limit`. O(N log K) where K = limit, much cheaper
+		// than sorting the whole set when N >> K (typical: ~263k empties, K=32).
+		java.util.PriorityQueue<long[]> heap = new java.util.PriorityQueue<>(
+			limit + 1,
+			(a, b) -> Long.compare(b[2], a[2])  // max-heap: largest dist at top so we can evict
+		);
+		for (var entry : l1Hashes.long2LongEntrySet()) {
+			if (entry.getLongValue() != 0) continue;
+			long colKey = entry.getLongKey();
+			if (markedFullColumns.contains(colKey)) continue;
+			if (exclude != null && exclude.contains(colKey)) continue;
+			int x = MerkleHashUtil.columnKeyX(colKey);
+			int z = MerkleHashUtil.columnKeyZ(colKey);
+			long dx = x - centerX;
+			long dz = z - centerZ;
+			long d2 = dx * dx + dz * dz;
+			if (heap.size() < limit) {
+				heap.add(new long[]{x, z, d2});
+			} else if (d2 < heap.peek()[2]) {
+				heap.poll();
+				heap.add(new long[]{x, z, d2});
+			}
+		}
+		// Drain heap; result will be in worst->best order, so reverse for nicer logs.
+		long[][] arr = heap.toArray(new long[0][]);
+		java.util.Arrays.sort(arr, (a, b) -> Long.compare(a[2], b[2]));
+		List<long[]> out = new ArrayList<>(arr.length);
+		for (long[] e : arr) {
+			out.add(new long[]{e[0], e[1]});
+		}
+		return out;
 	}
 
 	/**

@@ -3,7 +3,9 @@
 	"package": "me.cortex.voxy.server.mixin",
 	"compatibilityLevel": "JAVA_${java_version}",
 	"client": [
-		"client.DebugScreenEntriesAccessor"
+		"client.DebugScreenEntriesAccessor",
+		"client.GameRendererMixin",
+		"client.compat.sable.SubLevelRenderSectionManagerMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

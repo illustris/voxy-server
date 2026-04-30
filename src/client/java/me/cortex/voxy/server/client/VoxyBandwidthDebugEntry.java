@@ -15,11 +15,9 @@ public class VoxyBandwidthDebugEntry implements DebugScreenEntry {
 	public void display(DebugScreenDisplayer displayer, Level level, LevelChunk chunk, LevelChunk chunk2) {
 		double kbps = VoxyBandwidthTracker.getBytesPerSecond() / 1024.0;
 		int sections = VoxyBandwidthTracker.getTotalSectionsReceived();
-		int entities = ClientSyncHandler.getLODEntityManager().size();
 
 		StringBuilder sb = new StringBuilder();
-		sb.append(String.format("[Voxy] %.1f KB/s in | %d sections synced | %d LOD entities",
-			kbps, sections, entities));
+		sb.append(String.format("[Voxy] %.1f KB/s in | %d sections synced", kbps, sections));
 
 		int queueSize = VoxyBandwidthTracker.getServerQueueSize();
 		int stateOrd = VoxyBandwidthTracker.getServerSyncState();

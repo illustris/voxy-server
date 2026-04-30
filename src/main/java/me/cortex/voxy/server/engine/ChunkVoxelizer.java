@@ -19,7 +19,7 @@ public class ChunkVoxelizer {
 
 	private final ServerLodEngine engine;
 	private final SyncService syncService;
-	private final boolean generateOnChunkLoad;
+	private final VoxyServerConfig config;
 	private final ConcurrentHashMap<PendingChunk, Long> pendingChunkRetries = new ConcurrentHashMap<>();
 	private long currentTick;
 	private int totalVoxelized = 0;
@@ -29,23 +29,25 @@ public class ChunkVoxelizer {
 	public ChunkVoxelizer(ServerLodEngine engine, SyncService syncService, VoxyServerConfig config) {
 		this.engine = engine;
 		this.syncService = syncService;
-		this.generateOnChunkLoad = config.generateOnChunkLoad;
-		VoxyServerMod.LOGGER.info("[Voxelizer] Created, generateOnChunkLoad={}", generateOnChunkLoad);
+		this.config = config;
+		VoxyServerMod.LOGGER.info("[Voxelizer] Created, generateOnChunkLoad={}", config.generateOnChunkLoad);
 	}
 
 	public void register() {
-		if (generateOnChunkLoad) {
-			//? if HAS_RENDER_PIPELINES {
-			ServerChunkEvents.CHUNK_LOAD.register((level, chunk, isNew) -> this.onChunkLoad(level, chunk));
-			//?} else {
-			/*ServerChunkEvents.CHUNK_LOAD.register((level, chunk) -> this.onChunkLoad(level, chunk));
-			*///?}
-			ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
-			VoxyServerMod.LOGGER.info("[Voxelizer] Registered chunk load listener");
-		}
+		// Always register the listeners; the onChunkLoad callback gates on
+		// config.generateOnChunkLoad live so the toggle takes effect at runtime
+		// without re-registration (which Fabric's event API doesn't support).
+		//? if HAS_RENDER_PIPELINES {
+		ServerChunkEvents.CHUNK_LOAD.register((level, chunk, isNew) -> this.onChunkLoad(level, chunk));
+		//?} else {
+		/*ServerChunkEvents.CHUNK_LOAD.register((level, chunk) -> this.onChunkLoad(level, chunk));
+		*///?}
+		ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
+		VoxyServerMod.LOGGER.info("[Voxelizer] Registered chunk load listener");
 	}
 
 	private void onChunkLoad(ServerLevel level, LevelChunk chunk) {
+		if (!config.generateOnChunkLoad) return;
 		VoxyServerMod.debug("[Voxelizer] Chunk loaded: ({},{}) in {}",
 			chunk.getPos().x(), chunk.getPos().z(), level.dimension().identifier());
 		if (ingestChunk(level, chunk, false)) {
@@ -95,6 +97,13 @@ public class ChunkVoxelizer {
 					15, chunk.getPos().x(), 0, chunk.getPos().z()
 				);
 				engine.getSectionHashStore().putHash(chunkMarkerKey, 1L);
+				// Notify sync service so active sessions' Merkle trees can flip
+				// the column to "covered" without waiting for the dirty-section
+				// debounce (~20 ticks). Otherwise the dispatcher loops through
+				// these columns finding no missing chunks.
+				if (syncService != null) {
+					syncService.notifyChunkMarkerSet(chunk.getPos().x(), chunk.getPos().z());
+				}
 			}
 			totalVoxelized++;
 			if (totalVoxelized % 100 == 0) {

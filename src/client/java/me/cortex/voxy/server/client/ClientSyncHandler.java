@@ -33,12 +33,7 @@ import java.util.Optional;
 public class ClientSyncHandler {
 	private static final Logger LOGGER = LoggerFactory.getLogger("voxy-server-client");
 	private static final ClientMerkleState merkleState = new ClientMerkleState();
-	private static final LODEntityManager lodEntityManager = new LODEntityManager();
 	private static volatile int maxRadius = 0;
-
-	public static LODEntityManager getLODEntityManager() {
-		return lodEntityManager;
-	}
 
 	public static int getMaxRadius() {
 		return maxRadius;
@@ -101,22 +96,7 @@ public class ClientSyncHandler {
 
 		// Handle clear
 		ClientPlayNetworking.registerGlobalReceiver(LODClearPayload.TYPE, (payload, context) -> {
-			context.client().execute(() -> {
-				merkleState.clear();
-				lodEntityManager.clear();
-			});
-		});
-
-		// Handle LOD entity updates
-		ClientPlayNetworking.registerGlobalReceiver(LODEntityUpdatePayload.TYPE, (payload, context) -> {
-			VoxyBandwidthTracker.recordBytes("entities", payload.count() * 37 + 16);
-			context.client().execute(() -> lodEntityManager.applyUpdate(payload));
-		});
-
-		// Handle LOD entity removals
-		ClientPlayNetworking.registerGlobalReceiver(LODEntityRemovePayload.TYPE, (payload, context) -> {
-			VoxyBandwidthTracker.recordBytes("entities", payload.entityIds().length * 5 + 4);
-			context.client().execute(() -> lodEntityManager.applyRemoval(payload));
+			context.client().execute(merkleState::clear);
 		});
 
 		// Handle sync status from server
@@ -166,22 +146,7 @@ public class ClientSyncHandler {
 
 		// Handle clear
 		ClientPlayNetworking.registerGlobalReceiver(LODClearPayload.TYPE, (packet, player, sender) -> {
-			Minecraft.getInstance().execute(() -> {
-				merkleState.clear();
-				lodEntityManager.clear();
-			});
-		});
-
-		// Handle LOD entity updates
-		ClientPlayNetworking.registerGlobalReceiver(LODEntityUpdatePayload.TYPE, (packet, player, sender) -> {
-			VoxyBandwidthTracker.recordBytes("entities", packet.count() * 37 + 16);
-			Minecraft.getInstance().execute(() -> lodEntityManager.applyUpdate(packet));
-		});
-
-		// Handle LOD entity removals
-		ClientPlayNetworking.registerGlobalReceiver(LODEntityRemovePayload.TYPE, (packet, player, sender) -> {
-			VoxyBandwidthTracker.recordBytes("entities", packet.entityIds().length * 5 + 4);
-			Minecraft.getInstance().execute(() -> lodEntityManager.applyRemoval(packet));
+			Minecraft.getInstance().execute(merkleState::clear);
 		});
 
 		// Handle sync status from server

@@ -106,6 +106,41 @@ public class SectionHashStore {
 	}
 
 	/**
+	 * Iterate per-chunk voxelization markers (level=15 namespace) inside the
+	 * given level-0 SECTION bounds. Each chunk x is in [minSectionX*2 .. maxSectionX*2+1].
+	 * The consumer receives (chunkX, chunkZ) for each marker present.
+	 *
+	 * Used by tree build to learn which chunks are already voxelized so the
+	 * tree can mark fully-covered columns as "no work needed" even when their
+	 * L0 hashes haven't been written yet (debounce window).
+	 */
+	public void iterateMarkersInBounds(int minSectionX, int maxSectionX, int minSectionZ, int maxSectionZ,
+			java.util.function.IntBinaryOperator consumer) {
+		int minChunkX = minSectionX * 2;
+		int maxChunkX = maxSectionX * 2 + 1;
+		int minChunkZ = minSectionZ * 2;
+		int maxChunkZ = maxSectionZ * 2 + 1;
+		try (RocksIterator iter = db.newIterator()) {
+			iter.seekToFirst();
+			while (iter.isValid()) {
+				byte[] key = iter.key();
+				if (key.length >= 8) {
+					long sectionKey = ByteBuffer.wrap(key).getLong();
+					int level = WorldEngine.getLevel(sectionKey);
+					if (level == 15) {
+						int x = WorldEngine.getX(sectionKey);
+						int z = WorldEngine.getZ(sectionKey);
+						if (x >= minChunkX && x <= maxChunkX && z >= minChunkZ && z <= maxChunkZ) {
+							consumer.applyAsInt(x, z);
+						}
+					}
+				}
+				iter.next();
+			}
+		}
+	}
+
+	/**
 	 * Check which of the 4 per-chunk markers (level=15 namespace) are absent
 	 * for the 2x2 chunks covering a WorldSection at (sectionX, sectionZ).
 	 * Returns the ChunkPos values that still need voxelization.
