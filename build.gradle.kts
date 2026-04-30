@@ -32,6 +32,7 @@ loom.mods.register("voxy-server") {
 
 repositories {
 	maven("https://maven.fabricmc.net/") { name = "Fabric" }
+	maven("https://maven.terraformersmc.com/") { name = "TerraformersMC" }
 	mavenCentral()
 }
 
@@ -70,6 +71,17 @@ dependencies {
 		add("modImplementation", files(voxyJar))
 	} else {
 		add("implementation", files(voxyJar))
+	}
+
+	// ModMenu (optional dep, compile-only). The mod loads fine without ModMenu
+	// installed at runtime -- the ModMenuApi entrypoint simply won't fire.
+	val modmenuVersion = property("deps.modmenu").toString()
+	if (deobfuscated) {
+		// 26.1+ ships deobfuscated; ModMenu jars from terraformersmc maven are
+		// already in production names so plain compileOnly works.
+		add("compileOnly", "com.terraformersmc:modmenu:${modmenuVersion}")
+	} else {
+		add("modCompileOnly", "com.terraformersmc:modmenu:${modmenuVersion}")
 	}
 
 	// LWJGL core for dedicated servers (MC only bundles it for clients).

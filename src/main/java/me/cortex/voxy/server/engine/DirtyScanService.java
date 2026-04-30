@@ -11,11 +11,22 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import java.util.List;
 
 public class DirtyScanService {
+	// Emit a single summary line per window instead of per-event chatter.
+	// 60 ticks = 3 seconds; matches the SyncService telemetry cadence.
+	private static final int SUMMARY_INTERVAL_TICKS = 60;
+
 	private final ServerLodEngine engine;
 	private final ChunkVoxelizer voxelizer;
 	private final SyncService syncService;
 	private final VoxyServerConfig config;
 	private int tickCounter = 0;
+	private int summaryCounter = 0;
+
+	// Window counters reset each summary interval.
+	private int windowScans = 0;
+	private int windowDirtyFound = 0;
+	private int windowRevoxelized = 0;
+	private int windowSkippedUnloaded = 0;
 
 	public DirtyScanService(ServerLodEngine engine, ChunkVoxelizer voxelizer,
 							SyncService syncService, VoxyServerConfig config) {
@@ -28,40 +39,53 @@ public class DirtyScanService {
 	}
 
 	public void tick(MinecraftServer server) {
+		summaryCounter++;
+		if (summaryCounter >= SUMMARY_INTERVAL_TICKS) {
+			emitSummary();
+			summaryCounter = 0;
+		}
+
 		if (++tickCounter < config.dirtyScanInterval) return;
 		tickCounter = 0;
 
 		ChunkTimestampStore store = engine.getChunkTimestampStore();
 		List<ChunkPos> dirtyChunks = store.findDirtyChunks(config.maxDirtyChunksPerScan);
-
-		if (!dirtyChunks.isEmpty()) {
-			VoxyServerMod.debug("[DirtyScan] Found {} dirty chunks", dirtyChunks.size());
-		}
+		windowScans++;
+		if (dirtyChunks.isEmpty()) return;
+		windowDirtyFound += dirtyChunks.size();
 
 		for (ChunkPos pos : dirtyChunks) {
-			ChunkTimestampStore.BlockChangeInfo changeInfo = store.getAndClearBlockChangeInfo(pos.x(), pos.z());
+			store.getAndClearBlockChangeInfo(pos.x(), pos.z()); // drain so we don't accumulate
 			boolean found = false;
 			for (ServerLevel level : server.getAllLevels()) {
 				LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x(), pos.z());
 				if (chunk != null) {
-					if (changeInfo != null) {
-						VoxyServerMod.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {}, triggered by {} block change(s), last: ({},{},{}) {} -> {}",
-							pos.x(), pos.z(), level.dimension().identifier(),
-							changeInfo.count(), changeInfo.x(), changeInfo.y(), changeInfo.z(),
-							changeInfo.oldState(), changeInfo.newState());
-					} else {
-						VoxyServerMod.debug("[DirtyScan] Re-voxelizing dirty chunk ({},{}) in {} (trigger info unavailable, likely from previous session)",
-							pos.x(), pos.z(), level.dimension().identifier());
-					}
 					voxelizer.revoxelizeChunk(level, chunk);
+					windowRevoxelized++;
 					found = true;
 					break;
 				}
 			}
-			if (!found) {
-				VoxyServerMod.debug("[DirtyScan] Dirty chunk ({},{}) not loaded, skipping", pos.x(), pos.z());
-			}
+			if (!found) windowSkippedUnloaded++;
 		}
+	}
+
+	private void emitSummary() {
+		// Suppress empty windows -- nothing to report when the server is idle.
+		if (windowScans == 0 || (windowDirtyFound == 0 && windowSkippedUnloaded == 0)) {
+			windowScans = 0;
+			windowDirtyFound = 0;
+			windowRevoxelized = 0;
+			windowSkippedUnloaded = 0;
+			return;
+		}
+		VoxyServerMod.debug(
+			"[DirtyScan] window={}t scans={} dirtyFound={} revoxelized={} skippedUnloaded={}",
+			SUMMARY_INTERVAL_TICKS, windowScans, windowDirtyFound, windowRevoxelized, windowSkippedUnloaded);
+		windowScans = 0;
+		windowDirtyFound = 0;
+		windowRevoxelized = 0;
+		windowSkippedUnloaded = 0;
 	}
 
 	public void shutdown() {}

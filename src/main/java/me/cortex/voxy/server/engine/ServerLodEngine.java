@@ -8,6 +8,7 @@ import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.commonImpl.VoxyInstance;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
 import me.cortex.voxy.server.VoxyServerMod;
+import me.cortex.voxy.server.config.VoxyServerConfig;
 import me.cortex.voxy.server.merkle.SectionHashStore;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
@@ -40,13 +41,13 @@ public class ServerLodEngine extends VoxyInstance {
 	private final SectionHashStore sectionHashStore;
 	private final ChunkTimestampStore chunkTimestampStore;
 
-	public ServerLodEngine(Path worldFolder) {
+	public ServerLodEngine(Path worldFolder, VoxyServerConfig config) {
 		super();
 		this.basePath = worldFolder.resolve("voxy-server");
 		this.storageConfig = StorageConfigUtil.createDefaultSerializer();
 
 		Path metadataPath = this.basePath.resolve("metadata");
-		this.sectionHashStore = new SectionHashStore(metadataPath.resolve("section_hashes"));
+		this.sectionHashStore = new SectionHashStore(metadataPath.resolve("section_hashes"), config.l0HashCacheCapBytes);
 		this.chunkTimestampStore = new ChunkTimestampStore(metadataPath.resolve("chunk_timestamps"));
 		ChunkTimestampStore.setGlobalInstance(this.chunkTimestampStore);
 

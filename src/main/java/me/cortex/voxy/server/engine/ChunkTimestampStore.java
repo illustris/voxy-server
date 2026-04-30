@@ -63,8 +63,6 @@ public class ChunkTimestampStore {
 		long currentTick = level.getServer().getTickCount();
 		store.markBlockUpdated(chunkX, chunkZ, currentTick);
 		store.recordBlockChange(chunkX, chunkZ, pos.getX(), pos.getY(), pos.getZ(), oldState, newState);
-		VoxyServerMod.debug("[BlockChange] ({},{},{}) {} -> {} in chunk ({},{})",
-			pos.getX(), pos.getY(), pos.getZ(), oldState, newState, chunkX, chunkZ);
 	}
 
 	public void markBlockUpdated(int chunkX, int chunkZ, long currentTick) {

@@ -8,6 +8,7 @@ import me.cortex.voxy.server.config.VoxyServerConfig;
 import me.cortex.voxy.server.engine.ChunkVoxelizer;
 import me.cortex.voxy.server.engine.DirtyScanService;
 import me.cortex.voxy.server.engine.ServerLodEngine;
+import me.cortex.voxy.server.network.ConfigSyncHandler;
 import me.cortex.voxy.server.network.VoxyServerNetworking;
 import me.cortex.voxy.server.streaming.EntitySyncService;
 import me.cortex.voxy.server.streaming.SyncService;
@@ -58,6 +59,10 @@ public class VoxyServerMod implements ModInitializer {
 		return debugEnabled;
 	}
 
+	public static void setDebugEnabled(boolean enabled) {
+		debugEnabled = enabled;
+	}
+
 	public static void debug(String msg, Object... args) {
 		if (debugEnabled) {
 			debugLogger.log(msg, args);
@@ -86,14 +91,37 @@ public class VoxyServerMod implements ModInitializer {
 			}
 
 			var worldPath = server.getWorldPath(LevelResource.ROOT);
-			lodEngine = new ServerLodEngine(worldPath);
+			lodEngine = new ServerLodEngine(worldPath, config);
 			lodEngine.updateDedicatedThreadsCount(config.workerThreads);
 			syncService = new SyncService(lodEngine, config);
 			syncService.register();
 			chunkVoxelizer = new ChunkVoxelizer(lodEngine, syncService, config);
 			chunkVoxelizer.register();
+			// Catch chunks force-loaded before our CHUNK_LOAD listener was
+			// registered (vanilla's spawn protection square). Otherwise these
+			// stay un-voxelized indefinitely if no player joins close enough
+			// for voxelizeAlreadyLoadedEmptyColumns to cover them.
+			chunkVoxelizer.scanAlreadyLoadedSpawnChunks(server);
+			// One-shot recovery: chunks left with markers but no L0 data
+			// from a prior server run that crashed mid-voxelization. The
+			// regular paths skip these (markedFullColumns + L1=0 collision),
+			// so they need explicit force-revoxelization.
+			chunkVoxelizer.detectAndRecoverDanglingSpawnMarkers(server);
 			syncService.setChunkVoxelizer(chunkVoxelizer);
 			dirtyScanService = new DirtyScanService(lodEngine, chunkVoxelizer, syncService, config);
+
+			// Network-driven config edits from the client UI. Replays the
+			// snapshot to every connected client on every successful change.
+			ConfigSyncHandler configHandler = new ConfigSyncHandler(config, key -> {
+				if ("lodStreamRadius".equals(key) && syncService != null) {
+					syncService.rebuildAllTrees(server);
+				}
+				if ("compatSableAutoTrackingRange".equals(key) && config.compatSableAutoTrackingRange
+						&& SableIntegration.isPresent()) {
+					SableIntegration.liftTrackingRange(config.lodStreamRadius * 32.0);
+				}
+			});
+			configHandler.register();
 			if (config.enableEntitySync) {
 				entitySyncService = new EntitySyncService(config, syncService);
 				entitySyncServiceInstance = entitySyncService;
@@ -292,7 +320,15 @@ public class VoxyServerMod implements ModInitializer {
 							.append(" entitySync=").append(config.enableEntitySync
 								? (config.entitySyncMode
 									+ " interval=" + config.entitySyncIntervalTicks + "t max=" + config.maxLODEntitiesPerPlayer)
-								: "disabled");
+								: "disabled")
+							.append(" l0CacheCap=").append(config.l0HashCacheCapBytes >> 20).append("MB")
+							.append(" merkleHeartbeat=").append(config.merkleHeartbeatTicks).append("t")
+							.append(" slideTeleportThreshold=").append(config.merkleSlideTeleportThreshold).append("s");
+						if (lodEngine != null) {
+							var store = lodEngine.getSectionHashStore();
+							summary.append(" l0CacheUsed=").append(store.getCachedHashBytes() >> 20).append("MB")
+								.append("(").append(store.getCachedHashCount()).append(" entries)");
+						}
 						if (SableIntegration.isPresent()) {
 							double sableRange = SableIntegration.currentRange();
 							summary.append(" sable=").append(sableRange < 0 ? "?" : String.valueOf((int) sableRange)).append("b")
@@ -434,6 +470,113 @@ public class VoxyServerMod implements ModInitializer {
 					.executes(ctx -> {
 						ctx.getSource().sendSuccess(
 							() -> Component.literal("[Voxy] maxDirtyChunksPerScan: " + config.maxDirtyChunksPerScan),
+							false);
+						return 1;
+					}))
+
+				.then(Commands.literal("l0Cache")
+					.then(Commands.literal("cap")
+						.then(Commands.argument("megabytes", IntegerArgumentType.integer(1, 65536))
+							.executes(ctx -> {
+								int mb = IntegerArgumentType.getInteger(ctx, "megabytes");
+								long bytes = (long) mb * 1024L * 1024L;
+								config.l0HashCacheCapBytes = bytes;
+								config.save();
+								if (lodEngine != null) {
+									lodEngine.getSectionHashStore().setCacheCapBytes(bytes);
+								}
+								ctx.getSource().sendSuccess(
+									() -> Component.literal("[Voxy] L0 hash cache cap set to " + mb + " MB"
+										+ (lodEngine == null ? " (will apply on next server start)" : "")),
+									true);
+								return 1;
+							})))
+					.then(Commands.literal("flush")
+						.executes(ctx -> {
+							if (lodEngine == null) {
+								ctx.getSource().sendFailure(Component.literal(
+									"[Voxy] Engine not running"));
+								return 0;
+							}
+							int beforeEntries = lodEngine.getSectionHashStore().getCachedHashCount();
+							lodEngine.getSectionHashStore().flushCache();
+							ctx.getSource().sendSuccess(
+								() -> Component.literal("[Voxy] L0 hash cache flushed (" + beforeEntries + " entries dropped)"),
+								true);
+							return 1;
+						}))
+					.executes(ctx -> {
+						long capBytes = config.l0HashCacheCapBytes;
+						if (lodEngine == null) {
+							ctx.getSource().sendSuccess(
+								() -> Component.literal("[Voxy] L0 cache: cap=" + (capBytes >> 20) + " MB"
+									+ " (engine not running)"),
+								false);
+							return 1;
+						}
+						var store = lodEngine.getSectionHashStore();
+						int entries = store.getCachedHashCount();
+						long usedBytes = store.getCachedHashBytes();
+						long actualCap = store.getCacheCapBytes();
+						double pctFull = actualCap == 0 ? 0.0 : (100.0 * usedBytes / actualCap);
+						ctx.getSource().sendSuccess(
+							() -> Component.literal(String.format(
+								"[Voxy] L0 cache: %d entries, %.1f / %d MB used (%.1f%% full)",
+								entries,
+								usedBytes / (1024.0 * 1024.0),
+								actualCap >> 20,
+								pctFull)),
+							false);
+						return 1;
+					}))
+
+				.then(Commands.literal("merkleHeartbeat")
+					.then(Commands.literal("now")
+						.executes(ctx -> {
+							if (syncService == null) {
+								ctx.getSource().sendFailure(Component.literal("[Voxy] Engine not running"));
+								return 0;
+							}
+							int n = syncService.forceEmitHeartbeats(ctx.getSource().getServer());
+							ctx.getSource().sendSuccess(
+								() -> Component.literal("[Voxy] Forced heartbeat emit for " + n + " session(s)"),
+								true);
+							return 1;
+						}))
+					.then(Commands.argument("ticks", IntegerArgumentType.integer(0, 12000))
+						.executes(ctx -> {
+							int t = IntegerArgumentType.getInteger(ctx, "ticks");
+							config.merkleHeartbeatTicks = t;
+							config.save();
+							ctx.getSource().sendSuccess(
+								() -> Component.literal("[Voxy] merkleHeartbeatTicks set to " + t
+									+ (t == 0 ? " (heartbeat disabled)" : " (~" + String.format("%.1f", t / 20.0) + "s)")),
+								true);
+							return 1;
+						}))
+					.executes(ctx -> {
+						int t = config.merkleHeartbeatTicks;
+						ctx.getSource().sendSuccess(
+							() -> Component.literal("[Voxy] merkleHeartbeatTicks: " + t
+								+ (t == 0 ? " (disabled)" : " (~" + String.format("%.1f", t / 20.0) + "s)")),
+							false);
+						return 1;
+					}))
+
+				.then(Commands.literal("slideTeleportThreshold")
+					.then(Commands.argument("sections", IntegerArgumentType.integer(1, 1024))
+						.executes(ctx -> {
+							int n = IntegerArgumentType.getInteger(ctx, "sections");
+							config.merkleSlideTeleportThreshold = n;
+							config.save();
+							ctx.getSource().sendSuccess(
+								() -> Component.literal("[Voxy] slideTeleportThreshold set to " + n + " sections"),
+								true);
+							return 1;
+						}))
+					.executes(ctx -> {
+						ctx.getSource().sendSuccess(
+							() -> Component.literal("[Voxy] slideTeleportThreshold: " + config.merkleSlideTeleportThreshold + " sections"),
 							false);
 						return 1;
 					})));

@@ -6,6 +6,9 @@ import me.cortex.voxy.server.mixin.client.DebugScreenEntriesAccessor;
 //?}
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+//? if !HAS_RENDER_PIPELINES {
+/*import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+*///?}
 //? if HAS_RENDER_PIPELINES {
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
@@ -68,6 +71,16 @@ public class VoxyServerClient implements ClientModInitializer {
 		VoxyDebugRenderer debugRenderer = new VoxyDebugRenderer();
 		LevelRenderEvents.COLLECT_SUBMITS.register(debugRenderer::render);
 		//?}
+
+		// Telemetry HUD overlay -- gated by VoxyServerClientConfig.telemetryOverlayEnabled
+		// inside the render method itself, so registration is unconditional on
+		// supported MC versions. HudRenderCallback was removed in MC 26.1+
+		// (HUD/Gui rendering rewritten around GuiRenderer / GuiRenderState).
+		// Telemetry data is still gathered in VoxyTelemetryHistory regardless
+		// of MC version; only the visual overlay is missing on 26.1+.
+		//? if !HAS_RENDER_PIPELINES {
+		/*HudRenderCallback.EVENT.register((g, td) -> VoxyTelemetryOverlay.render(g, td.getGameTimeDeltaPartialTick(false)));
+		*///?}
 
 		registerKeybinds();
 	}

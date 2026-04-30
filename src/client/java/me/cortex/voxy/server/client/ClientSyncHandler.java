@@ -105,6 +105,28 @@ public class ClientSyncHandler {
 				payload.queueSize(), payload.syncState(), payload.pendingGenCount()
 			);
 		});
+
+		// Handle telemetry snapshots from server (1 Hz). Push into the per-metric
+		// rolling window for the HUD overlay to read.
+		ClientPlayNetworking.registerGlobalReceiver(TelemetrySnapshotPayload.TYPE, (payload, context) -> {
+			VoxyTelemetryHistory.pushSnapshot(decodeSnapshot(payload));
+			// Mirror the three SyncStatusPayload fields into the bandwidth
+			// tracker so the existing F3 entry continues to show fresh values
+			// (telemetry replaces SyncStatusPayload's role).
+			VoxyBandwidthTracker.updateServerStatus(
+				payload.sendQueueSize(), -1, payload.pendingGenCount()
+			);
+		});
+
+		// Server pushed its config; cache for the ModMenu config screen.
+		ClientPlayNetworking.registerGlobalReceiver(ConfigSnapshotPayload.TYPE, (payload, context) -> {
+			ServerConfigState.update(payload);
+		});
+
+		// Result of a config edit (success/failure + reason).
+		ClientPlayNetworking.registerGlobalReceiver(ConfigEditResultPayload.TYPE, (payload, context) -> {
+			ServerConfigEditFeedback.publish(payload);
+		});
 		//?} else {
 		/*// Handle server settings
 		ClientPlayNetworking.registerGlobalReceiver(MerkleSettingsPayload.TYPE, (packet, player, sender) -> {
@@ -154,6 +176,21 @@ public class ClientSyncHandler {
 			VoxyBandwidthTracker.updateServerStatus(
 				packet.queueSize(), packet.syncState(), packet.pendingGenCount()
 			);
+		});
+
+		// Handle telemetry snapshots from server (1 Hz)
+		ClientPlayNetworking.registerGlobalReceiver(TelemetrySnapshotPayload.TYPE, (packet, player, sender) -> {
+			VoxyTelemetryHistory.pushSnapshot(decodeSnapshot(packet));
+			VoxyBandwidthTracker.updateServerStatus(
+				packet.sendQueueSize(), -1, packet.pendingGenCount()
+			);
+		});
+
+		ClientPlayNetworking.registerGlobalReceiver(ConfigSnapshotPayload.TYPE, (packet, player, sender) -> {
+			ServerConfigState.update(packet);
+		});
+		ClientPlayNetworking.registerGlobalReceiver(ConfigEditResultPayload.TYPE, (packet, player, sender) -> {
+			ServerConfigEditFeedback.publish(packet);
 		});
 		*///?}
 	}
@@ -280,5 +317,36 @@ public class ClientSyncHandler {
 		}
 
 		return remapped;
+	}
+
+	/**
+	 * Unpack a {@link TelemetrySnapshotPayload} into the float[] order expected
+	 * by {@link VoxyTelemetryHistory#pushSnapshot}. Indices follow
+	 * {@link VoxyTelemetryHistory.Metric#ordinal()} so a single line in
+	 * {@link VoxyTelemetryHistory.Metric} is the only place this contract
+	 * lives.
+	 */
+	private static float[] decodeSnapshot(TelemetrySnapshotPayload p) {
+		float[] vals = new float[VoxyTelemetryHistory.Metric.values().length];
+		vals[VoxyTelemetryHistory.Metric.CHUNKS_PER_SEC.ordinal()] = p.chunksPerSecX10() / 10f;
+		vals[VoxyTelemetryHistory.Metric.FAILED_CHUNKS.ordinal()] = p.failedChunks();
+		vals[VoxyTelemetryHistory.Metric.IN_FLIGHT.ordinal()] = p.inFlightChunks();
+		vals[VoxyTelemetryHistory.Metric.GEN_QUEUE_DEPTH.ordinal()] = p.genQueueDepth();
+		vals[VoxyTelemetryHistory.Metric.GET_CHUNK_AVG_MS.ordinal()] = p.getChunkAvgMs();
+		vals[VoxyTelemetryHistory.Metric.VOXELIZE_AVG_MS.ordinal()] = p.voxelizeAvgMs();
+		vals[VoxyTelemetryHistory.Metric.MC_TICK_EMA_MS.ordinal()] = p.mcTickEmaMs();
+		vals[VoxyTelemetryHistory.Metric.DISPATCH_BUDGET.ordinal()] = p.dispatchBudgetX100() / 100f;
+		vals[VoxyTelemetryHistory.Metric.SECTIONS_SENT.ordinal()] = p.sectionsSent();
+		vals[VoxyTelemetryHistory.Metric.HEARTBEATS_EMITTED.ordinal()] = p.heartbeatsEmitted();
+		vals[VoxyTelemetryHistory.Metric.HEARTBEATS_SKIPPED.ordinal()] = p.heartbeatsSkipped();
+		vals[VoxyTelemetryHistory.Metric.SEND_QUEUE_SIZE.ordinal()] = p.sendQueueSize();
+		vals[VoxyTelemetryHistory.Metric.PENDING_GEN.ordinal()] = p.pendingGenCount();
+		vals[VoxyTelemetryHistory.Metric.DANGLING_COLUMNS.ordinal()] = p.danglingColumns();
+		vals[VoxyTelemetryHistory.Metric.SESSIONS_COUNT.ordinal()] = p.sessionsCount();
+		vals[VoxyTelemetryHistory.Metric.CLIENT_L1_BATCHES_RX.ordinal()] = p.clientL1BatchesRx();
+		vals[VoxyTelemetryHistory.Metric.SECTIONS_ENQUEUED.ordinal()] = p.sectionsEnqueued();
+		vals[VoxyTelemetryHistory.Metric.SECTION_COMMITS.ordinal()] = p.sectionCommits();
+		vals[VoxyTelemetryHistory.Metric.VOXY_INGEST_QUEUE.ordinal()] = p.voxyIngestQueueSize();
+		return vals;
 	}
 }

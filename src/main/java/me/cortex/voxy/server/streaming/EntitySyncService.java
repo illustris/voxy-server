@@ -132,20 +132,15 @@ public class EntitySyncService {
 		// Proactively pair via ChunkMap internals.
 		var chunkMap = level.getChunkSource().chunkMap;
 		Int2ObjectMap<?> entityMap = ((ChunkMapAccessor) chunkMap).voxy$getEntityMap();
-		int added = 0;
 		for (Candidate c : candidates) {
 			Object tracked = entityMap.get(c.entityId);
 			if (tracked instanceof TrackedEntityAccessor tea) {
 				Set<ServerPlayerConnection> seenBy = tea.voxy$getSeenBy();
 				if (seenBy.add(observer.connection)) {
 					tea.voxy$getServerEntity().addPairing(observer);
-					added++;
 				}
 			}
 		}
-
-		VoxyServerMod.debug("[EntitySync] Force-track for {}: {} entities ({} newly paired)",
-			observer.getName().getString(), newSet.size(), added);
 	}
 
 	private boolean matchesFilter(Entity entity) {

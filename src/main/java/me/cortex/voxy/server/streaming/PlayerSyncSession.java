@@ -41,11 +41,19 @@ public class PlayerSyncSession {
 	// so a player who moves while the queue is large always gets nearest-first
 	// LOD updates relative to their CURRENT location (not where they were when
 	// each section got queued).
+	//
+	// Membership is *transient*: a section that's been wire-shipped is removed
+	// from sendQueueDedup and may be re-enqueued by a future merkle diff if
+	// the client doesn't actually have it (failed delivery, mod-side bug, etc).
+	// The merkle protocol -- not a "sent already" set -- is the source of truth
+	// for "client has this section".
 	private final LongArrayList sendQueue = new LongArrayList();
 	private final LongOpenHashSet sendQueueDedup = new LongOpenHashSet();
 
-	// Set of section keys already sent
-	private final LongOpenHashSet sentSections = new LongOpenHashSet();
+	// L3 root hash at the moment of the last L2 heartbeat emission. Used to
+	// short-circuit the next heartbeat when the tree hasn't changed -- in
+	// steady state with no edits this skips emission entirely.
+	private long lastEmittedL3Hash = 0;
 
 	// Column keys (packed as MerkleHashUtil.packColumnKey) currently in-flight
 	// for generation. Prevents re-scheduling the same column across successive
@@ -124,12 +132,15 @@ public class PlayerSyncSession {
 		this.tree = null;
 		this.sendQueue.clear();
 		this.sendQueueDedup.clear();
-		this.sentSections.clear();
+		this.lastEmittedL3Hash = 0;
 		synchronized (generationLock) {
 			pendingGeneration.clear();
 		}
 		this.state = State.AWAITING_READY;
 	}
+
+	public long getLastEmittedL3Hash() { return lastEmittedL3Hash; }
+	public void setLastEmittedL3Hash(long h) { this.lastEmittedL3Hash = h; }
 
 	public void clearPendingGeneration() {
 		synchronized (generationLock) {
@@ -160,12 +171,13 @@ public class PlayerSyncSession {
 	}
 
 	/**
-	 * Enqueue section keys for sending. Skips sections already sent (sync path
-	 * never re-sends; dirty path uses {@link #enqueueSection(long)} which does).
+	 * Enqueue section keys for sending. Dedup against the live queue; the
+	 * merkle diff (not a per-session "already sent" set) decides whether a
+	 * section needs to be re-shipped, so a section flushed from the queue
+	 * by a previous pollBatch may legitimately re-enter on the next diff.
 	 */
 	public synchronized void enqueueSections(List<Long> sectionKeys) {
 		for (long key : sectionKeys) {
-			if (sentSections.contains(key)) continue;
 			if (sendQueueDedup.add(key)) {
 				sendQueue.add(key);
 			}
@@ -173,9 +185,8 @@ public class PlayerSyncSession {
 	}
 
 	/**
-	 * Enqueue a single section for sending (e.g., from dirty push).
-	 * Does NOT check sentSections -- dirty updates should always be re-sent.
-	 * Dedup against pending: if it's already queued, no-op.
+	 * Enqueue a single section for sending. Same dedup semantics as
+	 * {@link #enqueueSections}.
 	 */
 	public synchronized void enqueueSection(long sectionKey) {
 		if (sendQueueDedup.add(sectionKey)) {
@@ -214,7 +225,6 @@ public class PlayerSyncSession {
 		sendQueue.removeElements(0, batchSize);
 		for (int i = 0; i < batchSize; i++) {
 			sendQueueDedup.remove(batch[i]);
-			sentSections.add(batch[i]);
 		}
 		return batch;
 	}
