@@ -14,6 +14,9 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 //?} else {
 /*import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 *///?}
+//? if HAS_SUBMIT_NODE_COLLECTOR && !HAS_RENDER_PIPELINES {
+/*import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
+*///?}
 import net.minecraft.client.KeyMapping;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -40,17 +43,25 @@ public class VoxyServerClient implements ClientModInitializer {
 
 		clientConfig = VoxyServerClientConfig.load();
 
-		//? if HAS_RENDER_PIPELINES {
+		//? if HAS_SUBMIT_NODE_COLLECTOR {
 		LODEntityRenderer entityRenderer = new LODEntityRenderer(
 			ClientSyncHandler.getLODEntityManager(), clientConfig
 		);
-
+		//? if HAS_RENDER_PIPELINES {
 		// Must use COLLECT_SUBMITS so entity render nodes are submitted before
 		// renderSolidFeatures() processes them. AFTER_SOLID_FEATURES is too late --
 		// solid render types (entityCutoutNoCull used by most mobs) would never
 		// be processed because the solid pass already ran.
 		LevelRenderEvents.COLLECT_SUBMITS.register(entityRenderer::render);
+		//?} else {
+		/*// Pre-26.1: vanilla draws entities during the world-render phase,
+		// so we register against AFTER_ENTITIES which fires after vanilla
+		// has drawn its entities -- equivalent injection point.
+		WorldRenderEvents.AFTER_ENTITIES.register(entityRenderer::render);
+		*///?}
+		//?}
 
+		//? if HAS_RENDER_PIPELINES {
 		VoxyDebugRenderer debugRenderer = new VoxyDebugRenderer();
 		LevelRenderEvents.COLLECT_SUBMITS.register(debugRenderer::render);
 		//?}

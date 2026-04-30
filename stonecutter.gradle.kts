@@ -58,7 +58,8 @@ stonecutter parameters {
 	constants["HAS_IDENTIFIER"]       = mc >= "1.21.11"   // Identifier vs ResourceLocation
 	constants["HAS_LOOKUP_OR_THROW"]  = mc >= "1.21.5"    // RegistryAccess.lookupOrThrow + Registry.get(int) (renamed in 1.21.5)
 	constants["HAS_DEBUG_SCREEN"]     = mc >= "1.21.11"   // DebugScreenEntries F3 API (conservative)
-	constants["HAS_RENDER_PIPELINES"] = mc >= "26.1"      // New RenderPipelines / SubmitNodeCollector API
+	constants["HAS_RENDER_PIPELINES"] = mc >= "26.1"      // Fabric LevelRenderEvents API (replaces WorldRenderEvents)
+	constants["HAS_SUBMIT_NODE_COLLECTOR"] = mc >= "1.21.11" // EntityRenderDispatcher.extract/submit + SubmitNodeCollector
 	constants["HAS_PERMISSIONS"]      = mc >= "1.21.11"   // Permissions.COMMANDS_ADMIN
 	constants["HAS_FULL_CHUNK_IS_OR_AFTER"] = mc >= "1.20.5" // FullChunkStatus.isOrAfter
 	constants["SETBLOCKSTATE_INT_FLAGS"] = mc >= "1.21.4" // LevelChunk.setBlockState third arg: int flags vs boolean moved

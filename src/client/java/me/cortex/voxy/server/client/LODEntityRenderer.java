@@ -1,34 +1,39 @@
 package me.cortex.voxy.server.client;
 
-//? if HAS_RENDER_PIPELINES {
+//? if HAS_SUBMIT_NODE_COLLECTOR {
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import me.cortex.voxy.server.util.DebouncedLogger;
-import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
+//? if HAS_RENDER_PIPELINES {
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.util.LightCoordsUtil;
 //?} else {
-/*import net.minecraft.resources.ResourceLocation;
+/*import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
+import net.minecraft.client.renderer.state.CameraRenderState;
+import net.minecraft.client.renderer.LightTexture;
 *///?}
+//?}
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,13 +57,13 @@ import java.util.Set;
  * Entity types that fail to create or render as models automatically fall back
  * to billboard rendering so they remain visible.
  *
- * On MC versions before 26.1, the render pipeline APIs are not available and
- * the render method is a no-op.
+ * Active on MC 1.21.11+ (uses EntityRenderDispatcher.extract/submit and
+ * SubmitNodeCollector). On older versions the renderer is a no-op stub.
  */
 public class LODEntityRenderer {
 	private static final Logger LOGGER = LoggerFactory.getLogger("voxy-server-client");
 
-	//? if HAS_RENDER_PIPELINES {
+	//? if HAS_SUBMIT_NODE_COLLECTOR {
 	private static final DebouncedLogger DEBUG = new DebouncedLogger(LOGGER);
 	private static final Identifier PLAYER_TYPE = Identifier.parse("minecraft:player");
 
@@ -66,6 +71,14 @@ public class LODEntityRenderer {
 		"lod_entity_billboard",
 		RenderSetup.builder(RenderPipelines.DEBUG_QUADS).createRenderSetup()
 	);
+
+	// On MC < 26.1, LightCoordsUtil doesn't exist; LightTexture.FULL_SKY is the
+	// equivalent skylight=15/blocklight=0 lightmap value.
+	//? if HAS_RENDER_PIPELINES {
+	private static final int FULL_SKY_LIGHT = LightCoordsUtil.FULL_SKY;
+	//?} else {
+	/*private static final int FULL_SKY_LIGHT = LightTexture.FULL_SKY;
+	*///?}
 
 	private final LODEntityManager manager;
 	private final VoxyServerClientConfig config;
@@ -88,7 +101,18 @@ public class LODEntityRenderer {
 		this.config = config;
 	}
 
+	//? if HAS_RENDER_PIPELINES {
 	public void render(LevelRenderContext context) {
+		renderInternal(context.poseStack(), context.bufferSource(), context.submitNodeCollector());
+	}
+	//?} else {
+	/*public void render(WorldRenderContext context) {
+		renderInternal(context.matrices(), context.consumers(), context.commandQueue());
+	}
+	*///?}
+
+	private void renderInternal(PoseStack poseStack, MultiBufferSource bufferSource,
+								 SubmitNodeCollector submitCollector) {
 		Minecraft mc = Minecraft.getInstance();
 		ClientLevel level = mc.level;
 		if (level == null) return;
@@ -134,11 +158,9 @@ public class LODEntityRenderer {
 		}
 
 		Vec3 cameraPos = mc.gameRenderer.getMainCamera().position();
-		PoseStack poseStack = context.poseStack();
-		MultiBufferSource bufferSource = context.bufferSource();
 
 		if ("model".equals(config.entityRenderMode)) {
-			renderModels(mc, level, poseStack, context.submitNodeCollector(), bufferSource, cameraPos, nativeFarEntities);
+			renderModels(mc, level, poseStack, submitCollector, bufferSource, cameraPos, nativeFarEntities);
 		} else {
 			renderBillboards(poseStack, bufferSource, cameraPos, nativeFarEntities);
 		}
@@ -240,7 +262,7 @@ public class LODEntityRenderer {
 	// ---- Model rendering ----------------------------------------------------
 
 	private void renderModels(Minecraft mc, ClientLevel level, PoseStack poseStack,
-							   net.minecraft.client.renderer.SubmitNodeCollector submitCollector,
+							   SubmitNodeCollector submitCollector,
 							   MultiBufferSource bufferSource, Vec3 cameraPos,
 							   List<Entity> nativeFarEntities) {
 		// Periodically allow retries for failed entity types
@@ -393,7 +415,7 @@ public class LODEntityRenderer {
 	private boolean submitEntityModel(EntityRenderDispatcher dispatcher, CameraRenderState cameraState,
 									   Entity entity, double posX, double posY, double posZ,
 									   Vec3 cameraPos, PoseStack poseStack,
-									   net.minecraft.client.renderer.SubmitNodeCollector submitCollector) {
+									   SubmitNodeCollector submitCollector) {
 		double rx = posX - cameraPos.x;
 		double ry = posY - cameraPos.y;
 		double rz = posZ - cameraPos.z;
@@ -401,7 +423,7 @@ public class LODEntityRenderer {
 		var savedPose = poseStack.last();
 		try {
 			EntityRenderState renderState = dispatcher.extractEntity(entity, 0.0f);
-			renderState.lightCoords = LightCoordsUtil.FULL_SKY;
+			renderState.lightCoords = FULL_SKY_LIGHT;
 			poseStack.pushPose();
 			dispatcher.submit(renderState, cameraState, rx, ry, rz, poseStack, submitCollector);
 			poseStack.popPose();
@@ -508,9 +530,9 @@ public class LODEntityRenderer {
 	//?} else {
 
 	/*
-	// Render pipeline APIs are not available before MC 26.1.
-	// The renderer is a no-op stub -- entity data management still works
-	// via LODEntityManager, but nothing is drawn.
+	// SubmitNodeCollector + EntityRenderDispatcher.extract/submit only exist
+	// on MC 1.21.11+. The renderer is a no-op stub on older versions --
+	// LODEntityManager still receives packets, but nothing is drawn.
 
 	public LODEntityRenderer(LODEntityManager manager, VoxyServerClientConfig config) {
 	}
