@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Renders entities vanilla's LevelRenderer drops. Vanilla skips an entity when
@@ -65,6 +66,11 @@ public class LODEntityRenderer {
 	// vanilla's ClientLevel skips entities in unloaded chunks, so without
 	// this their interpolation/animations would freeze.
 	private long lastTickedGameTime = -1;
+
+	// LoS culling against voxy's LOD voxel grid. Lifecycle is renderer-scoped
+	// (1 instance, registered once at client init); no shutdown needed --
+	// the worker thread is a daemon and exits with the JVM.
+	private final LODEntityCuller culler = new LODEntityCuller();
 
 	public LODEntityRenderer() {
 	}
@@ -170,6 +176,7 @@ public class LODEntityRenderer {
 		for (Entity entity : farEntities) {
 			Identifier entityType = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
 			if (failedEntityTypes.contains(entityType)) continue;
+			if (!culler.isVisible(entity, cameraPos.x, cameraPos.y, cameraPos.z)) continue;
 
 			double rx = entity.getX() - cameraPos.x;
 			double ry = entity.getY() - cameraPos.y;
@@ -188,6 +195,8 @@ public class LODEntityRenderer {
 				failedEntityTypes.add(entityType);
 			}
 		}
+
+		culler.onFrameComplete(farEntities.stream().map(Entity::getId).collect(Collectors.toSet()));
 	}
 	//?}
 
@@ -220,6 +229,7 @@ public class LODEntityRenderer {
 		for (Entity entity : farEntities) {
 			Identifier entityType = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
 			if (failedEntityTypes.contains(entityType)) continue;
+			if (!culler.isVisible(entity, cameraPos.x, cameraPos.y, cameraPos.z)) continue;
 
 			double rx = entity.getX() - cameraPos.x;
 			double ry = entity.getY() - cameraPos.y;
@@ -237,6 +247,8 @@ public class LODEntityRenderer {
 				failedEntityTypes.add(entityType);
 			}
 		}
+
+		culler.onFrameComplete(farEntities.stream().map(Entity::getId).collect(Collectors.toSet()));
 	}
 	*///?}
 

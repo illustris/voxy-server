@@ -122,7 +122,18 @@ public class ChunkVoxelizer {
 
 	private void onChunkLoad(ServerLevel level, LevelChunk chunk) {
 		if (!config.generateOnChunkLoad) return;
-		if (ingestChunk(level, chunk, false) != IngestResult.FAILED) {
+		// Self-heal for the DirtyScanService.skippedUnloaded -> deleteRecord
+		// path: if a chunk got edited while loaded, then unloaded before
+		// DirtyScan could revoxelize it, the scan will have dropped its
+		// record. When it comes back, the per-chunk marker is still set
+		// from its prior voxelization, so the regular force=false path
+		// would short-circuit and the edit would be lost. Force-revoxelize
+		// here when the timestamp store still says lastBlockTick > lastVoxTick
+		// (which can only be true if either: the scan hasn't run yet, or
+		// the chunk unloaded before the scan got to it).
+		boolean force = engine.getChunkTimestampStore()
+			.isChunkDirty(chunk.getPos().x(), chunk.getPos().z());
+		if (ingestChunk(level, chunk, force) != IngestResult.FAILED) {
 			pendingChunkRetries.remove(new PendingChunk(level.dimension().identifier(), chunk.getPos().x(), chunk.getPos().z()));
 			return;
 		}

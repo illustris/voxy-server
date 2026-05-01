@@ -124,6 +124,44 @@ public class ChunkTimestampStore {
 	}
 
 	/**
+	 * Drop the record for a chunk entirely. Called by DirtyScanService when a
+	 * dirty chunk turns out to be unloaded -- otherwise the record sits at the
+	 * head of the RocksDB iteration order and {@link #findDirtyChunks} keeps
+	 * returning it every cycle, head-of-line-blocking the scan against fresh
+	 * edits at the tail. Pairs with the {@code onChunkLoad} self-heal in
+	 * ChunkVoxelizer: if the chunk loads back in later it'll be force-
+	 * revoxelized then.
+	 */
+	public void deleteRecord(int chunkX, int chunkZ) {
+		try {
+			db.delete(packKey(chunkX, chunkZ));
+		} catch (RocksDBException e) {
+			VoxyServerMod.LOGGER.warn("Failed to delete timestamp record at chunk ({}, {})", chunkX, chunkZ, e);
+		}
+	}
+
+	/**
+	 * Whether the chunk has a pending block-edit dirty bit, i.e.
+	 * {@code lastBlockTick > lastVoxTick}. Used by ChunkVoxelizer.onChunkLoad
+	 * to self-heal records that were dropped by the scan path while the
+	 * chunk was unloaded: any chunk that comes back in with a real edit
+	 * waiting gets a force-revoxelize regardless of its per-chunk marker.
+	 */
+	public boolean isChunkDirty(int chunkX, int chunkZ) {
+		try {
+			byte[] existing = db.get(packKey(chunkX, chunkZ));
+			if (existing == null || existing.length < 16) return false;
+			ByteBuffer buf = ByteBuffer.wrap(existing);
+			long lastBlockTick = buf.getLong();
+			long lastVoxTick = buf.getLong();
+			return lastBlockTick > lastVoxTick;
+		} catch (RocksDBException e) {
+			VoxyServerMod.LOGGER.warn("Failed to read timestamp record at chunk ({}, {})", chunkX, chunkZ, e);
+			return false;
+		}
+	}
+
+	/**
 	 * Returns chunks where lastBlockUpdateTick > lastVoxelizationTick.
 	 */
 	public List<ChunkPos> findDirtyChunks(int limit) {

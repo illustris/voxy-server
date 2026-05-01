@@ -37,6 +37,22 @@ public class VoxyServerClientConfig {
 	// Far-entity LOD rendering style: "billboard" or "model".
 	public String lodEntityRenderStyle = "model";
 
+	// LOD entity occlusion culling. Async raycast against voxy's client-side
+	// LOD voxel grid; entities behind LOD-only terrain (a hill that's only a
+	// far chunk to the client) are skipped.
+	public boolean lodEntityCullingEnabled = true;
+
+	// How long (ms) a per-entity visibility result is cached before being
+	// recomputed. Lower = more accurate at view-edge but more CPU per second.
+	// Clamped to >= 20ms by the culler so a 0 or negative value doesn't
+	// melt the worker thread.
+	public int lodEntityCullingRefreshMs = 100;
+
+	// Hard cap on raycast length (in blocks). Beyond this distance we don't
+	// trace -- the entity is at the LOD edge anyway, optimistically render.
+	// Clamped to >= 64 by the culler.
+	public int lodEntityCullingMaxRayBlocks = 8192;
+
 	// Debug logging on the client (mirrors server's debugLogging for client-side spam).
 	public boolean debugLogging = false;
 

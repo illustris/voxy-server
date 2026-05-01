@@ -48,11 +48,8 @@ public class SyncService {
 	// the tree is rebuilt around their new position. With lodStreamRadius=256, 16 = ~6%
 	// off-center so the tree always tracks the player closely. An elytra player at
 	// ~50 blocks/s triggers a rebuild every ~10s, walking rarely.
-	// Player position is sampled every N ticks; if the player section coords
-	// have changed since the last sample, slideBounds reshapes the tree to
-	// the new center. Every 40 ticks (2 s) is fine -- a walking player
-	// crosses sections every ~8 s, sprinting every ~3 s.
-	private static final int POSITION_CHECK_INTERVAL = 40;
+	private static final int TREE_REBUILD_DISTANCE = 16;
+	private static final int POSITION_CHECK_INTERVAL = 40;       // 2s -- cheap iteration
 	private static final int DIRTY_DEBOUNCE_TICKS = 20;          // wait 1 second after last dirty before processing
 	private static final int STATUS_SEND_INTERVAL = 20;          // send sync status to clients every 1 second
 	private static final int TELEMETRY_INTERVAL = 20;            // emit per-second snapshots; debug log fires here too
@@ -1153,10 +1150,11 @@ public class SyncService {
 		// per-tick rate control.
 		dispatchGeneration(server);
 
-		// Slide tree centers to track player movement. Replaces the prior
-		// "moved >=16 sections, full rebuild" trigger -- slideBounds runs the
-		// strip-update path on streamWorker for any non-zero delta, falling
-		// back to a full rebuild only on teleport-scale jumps.
+		// When the player moves more than TREE_REBUILD_DISTANCE sections from the
+		// tree center, rebuild the tree from scratch around their current section.
+		// Simpler than incremental sliding -- a full rebuild is O(radius^2)
+		// RocksDB iteration and O(radius^2) hash computes, but only triggers when
+		// the player has moved a significant fraction of the radius.
 		if (tickCounter % POSITION_CHECK_INTERVAL == 0) {
 			for (PlayerSyncSession session : sessions.values()) {
 				ServerPlayer player = session.getPlayer();
@@ -1164,24 +1162,9 @@ public class SyncService {
 
 				int sectionX = player.getBlockX() >> 5;
 				int sectionZ = player.getBlockZ() >> 5;
-				PlayerMerkleTree tree = session.getTree();
-				if (tree == null) continue;
-				if (sectionX == tree.getCenterX() && sectionZ == tree.getCenterZ()) continue;
-
-				final int newCenterX = sectionX;
-				final int newCenterZ = sectionZ;
-				final int teleportThreshold = config.merkleSlideTeleportThreshold;
-				streamWorker.execute(() -> {
-					try {
-						tree.slideBounds(engine.getSectionHashStore(),
-							newCenterX, newCenterZ, teleportThreshold);
-						session.updatePosition(newCenterX, newCenterZ);
-					} catch (Exception e) {
-						VoxyServerMod.LOGGER.warn("[Sync] slideBounds failed for {}, falling back to full rebuild",
-							player.getName().getString(), e);
-						rebuildTreeFor(server, session, "slide-failure");
-					}
-				});
+				if (session.hasMovedSignificantly(sectionX, sectionZ, TREE_REBUILD_DISTANCE)) {
+					rebuildTreeFor(server, session, "movement");
+				}
 			}
 		}
 

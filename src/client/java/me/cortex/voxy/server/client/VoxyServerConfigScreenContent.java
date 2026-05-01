@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 // 1.21.11-only ModMenu editor body. Owner screen forwards init/render/onClose
@@ -175,6 +177,11 @@ public class VoxyServerConfigScreenContent {
 			new String[] { "billboard", "model" },
 			() -> cfg.lodEntityRenderStyle,
 			v -> cfg.lodEntityRenderStyle = v);
+		addClientBool("LOD entity culling",    () -> cfg.lodEntityCullingEnabled,    v -> cfg.lodEntityCullingEnabled = v);
+		addClientInt("Cull refresh (ms)",      20, 5000,
+			() -> cfg.lodEntityCullingRefreshMs, v -> cfg.lodEntityCullingRefreshMs = v);
+		addClientInt("Cull max ray (blk)",     64, 65536,
+			() -> cfg.lodEntityCullingMaxRayBlocks, v -> cfg.lodEntityCullingMaxRayBlocks = v);
 		addClientBool("Client debug log",      () -> cfg.debugLogging,                v -> cfg.debugLogging = v);
 	}
 
@@ -343,6 +350,42 @@ public class VoxyServerConfigScreenContent {
 		}).bounds(rowWidgetX(), 0, WIDGET_W, WIDGET_H).build();
 		row.widgets.add(btn);
 		registerWidget(btn);
+		clientRows.add(row);
+	}
+
+	// Client-side int knob with an EditBox + Set button. Same shape as the
+	// server-side variant but no wire round-trip; setter writes straight to
+	// VoxyServerClientConfig and the autosave-on-close picks it up.
+	private void addClientInt(String label, int min, int max,
+							   IntSupplier getter, IntConsumer setter) {
+		Row row = new Row(null, label);
+		EditBox box = new EditBox(Minecraft.getInstance().font,
+			rowWidgetX(), 0, WIDGET_W, WIDGET_H, Component.literal(label));
+		box.setMaxLength(16);
+		box.setValue(Integer.toString(getter.getAsInt()));
+		row.widgets.add(box);
+
+		Button set = Button.builder(Component.literal("Set"), b -> {
+			String raw = box.getValue();
+			try {
+				int v = Integer.parseInt(raw.trim());
+				if (v < min || v > max) {
+					row.statusOk = false;
+					row.statusMsg = "out of range " + min + ".." + max;
+					return;
+				}
+				setter.accept(v);
+				row.statusOk = true;
+				row.statusMsg = "saved";
+			} catch (NumberFormatException e) {
+				row.statusOk = false;
+				row.statusMsg = "not a number";
+			}
+		}).bounds(rowSetX(), 0, SET_W, WIDGET_H).build();
+		row.widgets.add(set);
+
+		registerWidget(box);
+		registerWidget(set);
 		clientRows.add(row);
 	}
 

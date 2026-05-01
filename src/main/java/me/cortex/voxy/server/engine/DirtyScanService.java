@@ -66,7 +66,16 @@ public class DirtyScanService {
 					break;
 				}
 			}
-			if (!found) windowSkippedUnloaded++;
+			if (!found) {
+				// Drop the record. Otherwise the same unloaded chunks sit at
+				// the head of the RocksDB iteration order forever, capping the
+				// scan at maxDirtyChunksPerScan stale entries every cycle and
+				// starving fresh edits at the tail. ChunkVoxelizer.onChunkLoad
+				// re-checks isChunkDirty when the chunk comes back, so dropping
+				// here doesn't lose the dirty bit if the chunk reloads later.
+				store.deleteRecord(pos.x(), pos.z());
+				windowSkippedUnloaded++;
+			}
 		}
 	}
 
